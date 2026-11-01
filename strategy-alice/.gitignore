@@ -1,0 +1,7 @@
+node_modules/
+bot/state/
+bot/config.json
+bot/PAUSE
+bot/journal.ndjson
+*.log
+.DS_Store
