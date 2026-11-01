@@ -4,3 +4,4 @@ bot/config.json
 bot/PAUSE
 *.log
 .DS_Store
+.claude/
