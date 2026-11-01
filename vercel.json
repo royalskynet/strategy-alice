@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "public": false,
+  "cleanUrls": true,
+  "headers": [
+    { "source": "/(.*)", "headers": [{ "key": "Cache-Control", "value": "no-store, must-revalidate" }] }
+  ]
+}
