@@ -53,13 +53,22 @@ test("非授權 chat 被忽略", async () => {
   assert.equal(r.offset, 3);
 });
 
-test("/pause 會建立 PAUSE 檔", () => {
+test("/stopentry 會建立 PAUSE 檔、/start 會移除", () => {
   const p = new URL("../bot/PAUSE", import.meta.url).pathname;
   try { fs.unlinkSync(p); } catch (e) { /* 不存在 */ }
-  const reply = T.handleCommand("/pause", {});
-  assert.match(reply, /已暫停/);
+  const reply = T.handleCommand("/stopentry", {});
+  assert.match(reply, /已停止進場/);
   assert.equal(fs.existsSync(p), true);
-  T.handleCommand("/resume", {});
+  T.handleCommand("/start", {});
+  assert.equal(fs.existsSync(p), false);
+});
+
+test("/pause 與 /resume 是別名，行為相同", () => {
+  const p = new URL("../bot/PAUSE", import.meta.url).pathname;
+  try { fs.unlinkSync(p); } catch (e) { /* 不存在 */ }
+  assert.match(T.handleCommand("/pause", {}), /已停止進場/);
+  assert.equal(fs.existsSync(p), true);
+  assert.match(T.handleCommand("/resume", {}), /已恢復/);
   assert.equal(fs.existsSync(p), false);
 });
 
@@ -67,6 +76,57 @@ test("/status 包含狀態欄位", () => {
   const s = T.handleCommand("/status", { status: { position: null, equity: { balance: 1000 }, paused: false, now: "x" } });
   assert.match(s, /無持倉/);
   assert.match(s, /1000\.00/);
+});
+
+test("/status 心跳逾時顯示「機器人無回應」", () => {
+  const s = T.handleCommand("/status", {
+    status: { position: null, equity: { balance: 1000 }, paused: false },
+    heartbeat: { alive: false, ageMs: 999999, lastHeartbeat: "x" }
+  });
+  assert.match(s, /機器人無回應/);
+  const ok = T.handleCommand("/status", {
+    status: { position: null, equity: { balance: 1000 }, paused: false },
+    heartbeat: { alive: true, ageMs: 1000, lastHeartbeat: "x" }
+  });
+  assert.match(ok, /心跳正常/);
+});
+
+test("12 個指令都有回應（/help 列出全部）", () => {
+  const help = T.handleCommand("/help", {});
+  assert.match(help, /\/status/);
+  for (const c of T.COMMANDS) assert.ok(help.includes(c) || c === "/stopentry", c + " 應出現在 /help");
+  assert.equal(T.COMMANDS.length, 12);
+});
+
+const JOURNAL = [
+  { t: "2026-11-01T01:00:00Z", type: "exit", pnl: 10, why: "停利" },
+  { t: "2026-11-01T02:00:00Z", type: "exit", pnl: -4, why: "停損" },
+  { t: "2026-11-01T03:00:00Z", type: "exit", pnl: 6, why: "均線下穿" }
+];
+
+test("/profit、/daily、/weekly、/performance、/balance、/trades 都能回", () => {
+  const ctx = { journal: JOURNAL, equity: { balance: 1002, peak: 1010 }, now: Date.parse("2026-11-01T04:00:00Z") };
+  assert.match(T.handleCommand("/profit", ctx), /\+12\.00/);
+  assert.match(T.handleCommand("/daily", ctx), /出場 3 筆/);
+  assert.match(T.handleCommand("/weekly", ctx), /近 7 天/);
+  assert.match(T.handleCommand("/performance", ctx), /勝率 66\.7%/);
+  assert.match(T.handleCommand("/balance", ctx), /1002\.00/);
+  assert.match(T.handleCommand("/trades", ctx), /均線下穿/);
+});
+
+test("/forceexit 只平紙上，回覆「已平倉（紙上）」並寫稽核紀錄", () => {
+  const audited = [];
+  const r = T.handleCommand("/forceexit", { status: { position: { entry: 100 } }, audit: (c) => audited.push(c) });
+  assert.match(r, /已平倉（紙上）/);
+  assert.match(r, /沒有送出任何真實訂單/);
+  assert.deepEqual(audited, ["/forceexit"]);
+  const none = T.handleCommand("/forceexit", { status: { position: null } });
+  assert.match(none, /無需平倉/);
+});
+
+test("/show_config 輸出目前參數", () => {
+  const s = T.handleCommand("/show_config", { cfg: { fast: 20, slow: 60 } });
+  assert.match(s, /"fast": 20/);
 });
 
 test("未知指令回 null（不回應）", () => {

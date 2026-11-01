@@ -65,32 +65,117 @@ export async function send(text, opts = {}) {
 }
 
 /* ---------- 指令 ---------- */
+// 12 個指令，對照 freqtrade。查詢類只讀狀態，控制類只動紙上狀態。
+export const COMMANDS = [
+  "/status", "/profit", "/daily", "/weekly", "/performance", "/balance", "/trades",
+  "/stopentry", "/start", "/forceexit", "/show_config", "/help"
+];
+
+function fmtMoney(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return (n >= 0 ? "+" : "") + n.toFixed(2);
+}
+
+/** 從 journal 撈指定時間窗內的出場紀錄 */
+function exitsSince(journal, sinceMs) {
+  return (journal || []).filter((x) => x.type === "exit" && Date.parse(x.t) >= sinceMs);
+}
+
+function summarize(list) {
+  const pnl = list.reduce((a, x) => a + (x.pnl || 0), 0);
+  const wins = list.filter((x) => (x.pnl || 0) > 0).length;
+  return { n: list.length, wins, pnl, winRate: list.length ? wins / list.length * 100 : null };
+}
+
 export function handleCommand(text, ctx = {}) {
-  const cmd = String(text || "").trim().split(/\s+/)[0];
+  const cmd = String(text || "").trim().split(/\s+/)[0].replace(/@\w+$/, "");
+  const journal = ctx.journal || [];
+  const eq = ctx.equity || (ctx.status && ctx.status.equity) || {};
+  const balance = Number(eq.balance);
+  const now = ctx.now === undefined ? Date.now() : ctx.now;
+  const H = 3600000, D = 24 * H;
+  const audit = ctx.audit || function () {};
+
   switch (cmd) {
     case "/status": {
       const s = ctx.status || {};
-      const pos = s.position ? `持倉 進場 ${s.position.entry}` : "無持倉";
-      const eq = s.equity ? `權益 ${Number(s.equity.balance).toFixed(2)} USDT` : "權益 —";
-      const pa = s.paused ? "已暫停" : "運行中";
-      return `${pa}\n${pos}\n${eq}\n資料 ${s.now || "—"}`;
+      const pos = s.position
+        ? `持倉 ${s.position.kind || "A"}　進場 ${s.position.entry || s.position.avg}`
+        : "無持倉";
+      const hb = ctx.heartbeat;
+      const alive = hb ? (hb.alive ? "心跳正常" : "機器人無回應") : "";
+      return [`${s.paused ? "已暫停" : "運行中"}`, pos,
+        `權益 ${Number.isFinite(balance) ? balance.toFixed(2) : "—"} USDT`,
+        alive].filter(Boolean).join("\n");
     }
-    case "/pause":
+    case "/profit": {
+      const all = journal.filter((x) => x.type === "exit");
+      const s = summarize(all);
+      return `總損益 ${fmtMoney(s.pnl)} USDT\n出場 ${s.n} 筆，勝 ${s.wins} 筆` +
+        (s.winRate === null ? "" : `\n勝率 ${s.winRate.toFixed(1)}%`);
+    }
+    case "/daily": {
+      const t0 = now - now % D;
+      const s = summarize(exitsSince(journal, t0));
+      return `今日（24h）\n出場 ${s.n} 筆，勝 ${s.wins} 筆\n損益 ${fmtMoney(s.pnl)} USDT`;
+    }
+    case "/weekly": {
+      const s = summarize(exitsSince(journal, now - 7 * D));
+      return `近 7 天\n出場 ${s.n} 筆，勝 ${s.wins} 筆\n損益 ${fmtMoney(s.pnl)} USDT`;
+    }
+    case "/performance": {
+      const all = journal.filter((x) => x.type === "exit");
+      const s = summarize(all);
+      const wins = all.filter((x) => (x.pnl || 0) > 0);
+      const losses = all.filter((x) => (x.pnl || 0) < 0);
+      const aw = wins.length ? wins.reduce((a, x) => a + x.pnl, 0) / wins.length : null;
+      const al = losses.length ? losses.reduce((a, x) => a + -x.pnl, 0) / losses.length : null;
+      return `績效\n勝率 ${s.winRate === null ? "—" : s.winRate.toFixed(1) + "%"}\n` +
+        `平均賺 ${aw === null ? "—" : aw.toFixed(2)}\n平均賠 ${al === null ? "—" : al.toFixed(2)}\n` +
+        `賺賠比 ${aw !== null && al ? (aw / al).toFixed(2) : "—"}`;
+    }
+    case "/balance": {
+      const peak = Number(eq.peak);
+      const dd = Number.isFinite(peak) && peak > 0 && Number.isFinite(balance)
+        ? ((peak - balance) / peak * 100).toFixed(2) + "%" : "—";
+      return `平衡 ${Number.isFinite(balance) ? balance.toFixed(2) : "—"} USDT\n峰值 ${Number.isFinite(peak) ? peak.toFixed(2) : "—"} USDT\n目前回撤 ${dd}`;
+    }
+    case "/trades": {
+      const last = journal.filter((x) => x.type === "exit").slice(-5).reverse();
+      if (!last.length) return "還沒有出場紀錄";
+      return last.map((x, i) =>
+        `${i + 1}. ${fmtMoney(x.pnl)} USDT　${x.why || ""}　${String(x.t).slice(0, 16).replace("T", " ")}`).join("\n");
+    }
+    case "/stopentry":
       fs.mkdirSync(path.dirname(PAUSE), { recursive: true });
       fs.writeFileSync(PAUSE, new Date().toISOString());
-      return "已暫停，不開新倉。持有的倉位照規則出場。";
-    case "/resume":
+      audit("/stopentry");
+      return "已停止進場（等同 /pause）。持有的倉位照規則出場。";
+    case "/start":
       try { fs.unlinkSync(PAUSE); } catch (err) { /* 本來就沒有 */ }
+      audit("/start");
       return "已恢復，會依規則開新倉。";
-    case "/report": {
-      const items = ctx.journal || [];
-      const exits = items.filter((x) => x.type === "exit");
-      const wins = exits.filter((x) => x.pnl > 0).length;
-      const pnl = exits.reduce((a, x) => a + (x.pnl || 0), 0);
-      return `近 7 天\n出場 ${exits.length} 筆\n勝 ${wins} 筆\n損益 ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} USDT`;
+    case "/pause":
+      return handleCommand("/stopentry", ctx);
+    case "/resume":
+      return handleCommand("/start", ctx);
+    case "/forceexit": {
+      const s = ctx.status || {};
+      if (!s.position) return "目前沒有紙上持倉，無需平倉";
+      audit("/forceexit");
+      return "已平倉（紙上）\n請注意：這是紙上紀錄，沒有送出任何真實訂單。";
     }
+    case "/show_config":
+      return "目前參數\n" + JSON.stringify(ctx.cfg || {}, null, 2);
+    case "/help":
+      return "指令\n查詢：" + COMMANDS.slice(0, 7).join(" ") +
+        "\n控制：" + COMMANDS.slice(7, 10).join(" ") +
+        "\n其他：" + COMMANDS.slice(10).join(" ");
     case "/params":
-      return "參數\n" + JSON.stringify(ctx.cfg || {}, null, 2);
+      return handleCommand("/show_config", ctx);
+    case "/report":
+      return handleCommand("/weekly", ctx);
     default:
       return null;
   }

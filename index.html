@@ -586,7 +586,7 @@ function backtestOn(barsIn, cfg, clock) {
   }
 
   var totalPnl = 0, wins = 0, grossWin = 0, grossLoss = 0, holdSum = 0, holdN = 0;
-  var peak = 0, curve = 0, mdd = 0, mddAt = null;
+  var peak = 0, curve = 0, mdd = 0, mddAt = null, mddPct = 0;
   var curvePts = [{ i: 0, eq: equityStart }];
   trades.forEach(function (t) {
     totalPnl += t.pnl;
@@ -595,7 +595,7 @@ function backtestOn(barsIn, cfg, clock) {
     curve += t.pnl;
     curvePts.push({ i: t.outIdx, eq: equityStart + curve });
     if (curve > peak) peak = curve;
-    if (peak - curve > mdd) { mdd = peak - curve; mddAt = t; }
+    if (peak - curve > mdd) { mdd = peak - curve; mddAt = t; mddPct = equityStart > 0 ? (peak - curve) / (equityStart + peak) * 100 : 0; }
   });
 
   return {
@@ -607,6 +607,8 @@ function backtestOn(barsIn, cfg, clock) {
     n: trades.length,
     winRate: trades.length ? wins / trades.length * 100 : null,
     mdd: mdd,
+    mddPct: mddPct,
+    equityStart: equityStart,
     profitFactor: grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? Infinity : null),
     avgHold: holdN ? holdSum / holdN : null,
     cost: totalCost,
@@ -827,6 +829,399 @@ function evaluateRegime(bars4h, th) {
 
 function fmtPct(v) { return v === null ? "—" : (v * 100).toFixed(2) + "%"; }
 function fmtNum(v, dp) { return Number(v).toFixed(dp); }
+
+/* ---------- M1 績效指標 ---------- */
+// 每根 K 線之間的報酬率（以策略權益為基礎）：持倉時用該根的價格變動，空手為 0
+function barReturns(bars, trades, stake) {
+  var ret = new Array(bars.length).fill(0);
+  trades.forEach(function (t) {
+    for (var i = t.inIdx + 1; i <= t.outIdx; i++) {
+      ret[i] = bars[i - 1][4] !== 0 ? bars[i][4] / bars[i - 1][4] - 1 : 0;
+    }
+  });
+  return ret;
+}
+
+function mean(a) { return a.length ? a.reduce(function (x, y) { return x + y; }, 0) / a.length : 0; }
+
+// 下行標準差：只算負報酬，以 0 為目標
+function downsideDev(a) {
+  var sq = a.map(function (r) { return Math.min(r, 0) * Math.min(r, 0); });
+  return Math.sqrt(mean(sq));
+}
+
+function stddev(a) {
+  if (a.length < 2) return 0;
+  var m = mean(a);
+  return Math.sqrt(a.reduce(function (s, x) { return s + (x - m) * (x - m); }, 0) / (a.length - 1));
+}
+
+// 年化係數：1h 一年 8760 根，4h 一年 2190 根
+function barsPerYear(tf) { return tf === "4h" ? 2190 : 8760; }
+
+/**
+ * 專業回測報告。全部以「每筆投入（stake）」為基準。
+ * 無風險利率固定 0。年化用 K 線根數換算，不假設日曆。
+ */
+function metricsOn(result, opts) {
+  var o = opts || {};
+  var cfg = o.cfg || {};
+  var stake = cfg.stake || 1000;
+  var tf = cfg.tf === "4h" ? "4h" : "1h";
+  var bpy = barsPerYear(tf);
+  var bars = result.bars || [];
+  var trades = result.trades || [];
+  var n = trades.length;
+
+  // 回撤曲線：逐點累積權益，記錄峰值與回撤（百分比，相對峰值權益）
+  // 空資料時 fallback 用每筆投入當基準，避免除零
+  var startEq = (cfg.equity || cfg.stake || 1000);
+  var peak = startEq, ddCurve = [], mddPct = 0;
+  result.curve.forEach(function (p) {
+    if (p.eq > peak) peak = p.eq;
+    var dd = peak > 0 ? (peak - p.eq) / peak * 100 : 0;
+    if (dd > mddPct) mddPct = dd;
+    ddCurve.push({ i: p.i, dd: -dd });
+  });
+
+  var rets = barReturns(bars, trades, stake);
+  var sd = stddev(rets);
+  var dd = downsideDev(rets);
+  var sharpe = sd > 0 ? mean(rets) / sd * Math.sqrt(bpy) : null;
+  var sortino = dd > 0 ? mean(rets) / dd * Math.sqrt(bpy) : null;
+  // 年化報酬：以總報酬換算到一年
+  var totalRetPct = result.totalPnl / stake * 100;
+  var nBars = bars.length || 1;
+  var years = nBars / bpy;
+  var annualPct = years > 0 ? (Math.pow(1 + totalRetPct / 100, 1 / years) - 1) * 100 : null;
+  var calmar = annualPct !== null && mddPct > 0 ? annualPct / mddPct : null;
+
+  var wins = trades.filter(function (t) { return t.pnl > 0; });
+  var losses = trades.filter(function (t) { return t.pnl < 0; });
+  var avgWin = wins.length ? mean(wins.map(function (t) { return t.pnl; })) : null;
+  var avgLoss = losses.length ? mean(losses.map(function (t) { return -t.pnl; })) : null;
+  var winLossRatio = avgWin !== null && avgLoss !== null && avgLoss > 0 ? avgWin / avgLoss : null;
+  var expectancy = n ? result.totalPnl / n : null;
+
+  // 最長連贏、連虧
+  var mw = 0, ml = 0, cw = 0, cl = 0;
+  trades.forEach(function (t) {
+    if (t.pnl > 0) { cw++; cl = 0; } else if (t.pnl < 0) { cl++; cw = 0; }
+    if (cw > mw) mw = cw;
+    if (cl > ml) ml = cl;
+  });
+
+  // 持倉時間占比
+  var heldBars = trades.reduce(function (s, t) { return s + (t.outIdx - t.inIdx); }, 0);
+  var timeInMarket = nBars ? heldBars / nBars * 100 : 0;
+
+  // 買進持有：第一根收盤買、最後一根收盤賣
+  var bhPct = null;
+  if (bars.length > 1 && bars[0][4] > 0) {
+    bhPct = (bars[bars.length - 1][4] / bars[0][4] - 1) * 100;
+  }
+
+  return {
+    sharpe: sharpe,
+    sortino: sortino,
+    calmar: calmar,
+    annualPct: annualPct,
+    expectancy: expectancy,
+    avgWin: avgWin,
+    avgLoss: avgLoss,
+    winLossRatio: winLossRatio,
+    maxWinStreak: mw,
+    maxLossStreak: ml,
+    timeInMarket: timeInMarket,
+    buyHoldPct: bhPct,
+    excessPct: bhPct === null ? null : totalRetPct - bhPct,
+    totalRetPct: totalRetPct,
+    mddPct: mddPct,
+    ddCurve: ddCurve,
+    barReturns: rets,
+    years: years
+  };
+}
+
+/* ---------- 評估用：產生回測報告（含指標） ---------- */
+function reportOn(barsIn, cfg, clock) {
+  var result = backtestOn(barsIn, cfg, clock);
+  return { result: result, metrics: metricsOn(result, { cfg: cfg }) };
+}
+
+/* ---------- 參數最佳化（M2） ---------- */
+// 兩個參數的網格。combos ≤ 400，超過直接擋。
+// cfgFor(combo) 產生回測參數；objective(kind, result, metrics) 回傳分數（越大越好）
+var OPT_MAX = 400;
+
+function gridCombos(rangeA, rangeB) {
+  function vals(r) {
+    var out = [];
+    var step = Math.abs(r.step) || 1;
+    var up = r.from <= r.to;
+    for (var v = r.from; up ? v <= r.to + 1e-9 : v >= r.to - 1e-9; v += up ? step : -step) {
+      out.push(Math.round(v * 1e6) / 1e6);
+      if (out.length > 1000) break;
+    }
+    return out;
+  }
+  var a = vals(rangeA), b = vals(rangeB);
+  return { a: a, b: b, count: a.length * b.length };
+}
+
+function objectiveScore(kind, metrics, result) {
+  switch (kind) {
+    case "sharpe": return metrics.sharpe === null ? -Infinity : metrics.sharpe;
+    case "calmar": return metrics.calmar === null ? -Infinity : metrics.calmar;
+    case "retdd": return metrics.mddPct > 0 ? metrics.totalRetPct / metrics.mddPct : metrics.totalRetPct;
+    default: return metrics.totalRetPct;
+  }
+}
+
+/**
+ * inSample 前 70% 找最佳，後 30% 驗證。回傳格子陣列（含 is/oos 分數）。
+ * 同步版；Web Worker 包在外面負責進度與取消。
+ */
+function optimizeOn(barsIn, baseCfg, rangeA, rangeB, keyA, keyB, objective, clock) {
+  var g = gridCombos(rangeA, rangeB);
+  if (g.count > OPT_MAX) {
+    return { ok: false, error: "參數組合數 " + g.count + " 超過上限 " + OPT_MAX + "，請把範圍縮小或步長加大" };
+  }
+  var cut = Math.floor(barsIn.length * 0.7);
+  var inBars = barsIn.slice(0, cut), outBars = barsIn.slice(cut - (baseCfg.slow || 60));
+  var off = baseCfg.slow || 60;
+  var clockIn = clock, clockOut = clock;
+  var cells = [], best = null;
+  g.a.forEach(function (va, i) {
+    g.b.forEach(function (vb, j) {
+      var cfg = Object.assign({}, baseCfg);
+      cfg[keyA] = va; cfg[keyB] = vb;
+      var v = validateConfig(cfg);
+      if (!v.ok) { cells.push({ i: i, j: j, a: va, b: vb, skip: true }); return; }
+      var rIn = backtestOn(inBars, v.cfg, clockIn);
+      var mIn = metricsOn(rIn, { cfg: v.cfg });
+      var rOut = backtestOn(outBars, v.cfg, clockOut);
+      var mOut = metricsOn(rOut, { cfg: v.cfg });
+      var sIn = objectiveScore(objective, mIn, rIn);
+      var sOut = objectiveScore(objective, mOut, rOut);
+      var cell = { i: i, j: j, a: va, b: vb, inScore: sIn, outScore: sOut,
+        inRet: mIn.totalRetPct, outRet: mOut.totalRetPct, inN: rIn.n, outN: rOut.n,
+        inSharpe: mIn.sharpe, outSharpe: mOut.sharpe };
+      cells.push(cell);
+      if (!best || sIn > best.inScore) best = cell;
+    });
+  });
+  var overfit = null;
+  if (best && Number.isFinite(best.inRet) && Number.isFinite(best.outRet)) {
+    // 樣本外報酬低於樣本內一半 → 標過度擬合
+    overfit = best.inRet > 0 && best.outRet < best.inRet * 0.5;
+  }
+  return { ok: true, cells: cells, a: g.a, b: g.b, keyA: keyA, keyB: keyB,
+    best: best, overfit: overfit, cut: cut, objective: objective, off: off };
+}
+
+/* ---------- M3 網格策略 ---------- */
+// cfg: { upper, lower, grids, perGrid, geo }
+// 價格每穿過一格就成交一次：往下穿＝買、往上穿＝賣。
+// 回傳 {trades:[{i,side,price,qty,pnl}], realized, unmatched, openQty, openCost}
+function gridBacktest(bars, cfg) {
+  var upper = cfg.upper, lower = cfg.lower, g = Math.max(2, Math.floor(cfg.grids));
+  var per = cfg.perGrid;
+  var levels = [];
+  for (var k = 0; k <= g; k++) {
+    var p = cfg.geo
+      ? lower * Math.pow(upper / lower, k / g)
+      : lower + (upper - lower) * k / g;
+    levels.push(p);
+  }
+  var pos = [];          // 手上每一格的買單：{price, qty}
+  var trades = [], realized = 0;
+  // 格線離散化：價格落在哪個格區間，以及實際成交價
+  // 買價＝該區間的下格線，賣價＝上格線。區間邊界不含下界，所以價格「剛好等於」格線時算已跨過。
+  function segLow(px) {
+    if (px <= lower) return 0;
+    if (px >= upper) return g;
+    for (var k = 1; k <= g; k++) if (px < levels[k]) return k;
+    return g;
+  }
+  function buyPx(px) {
+    var s = segLow(px);
+    if (s <= 0) return levels[0];
+    if (s >= g) return levels[g - 1];
+    return levels[s - 1];
+  }
+  function sellPx(px) {
+    var s = segLow(px);
+    if (s >= g) return levels[g];
+    return levels[s];
+  }
+  if (!bars.length) {
+    return { levels: levels, trades: [], realized: 0, openQty: 0, openCost: 0,
+      unrealized: 0, fills: 0, avgCost: null, lastPx: 0 };
+  }
+  var inZone = true;     // 是否已經在格區間內（第一次進區間不算「往下穿」）
+  var lastSeg = segLow(bars[0][4]);
+  inZone = bars[0][4] < upper && bars[0][4] > lower;
+  for (var i = 1; i < bars.length; i++) {
+    var px = bars[i][4];
+    if (px >= upper) {
+      // 衝出上界：把手上的全部賣在最後一條線
+      while (pos.length) {
+        var lot0 = pos.shift();
+        var pnl0 = lot0.qty * (levels[g] - lot0.price);
+        realized += pnl0;
+        trades.push({ i: i, side: "sell", price: levels[g], qty: lot0.qty, pnl: pnl0 });
+      }
+      inZone = false;
+      lastSeg = g;
+      continue;
+    }
+    if (px <= lower) {
+      // 跌破下界：只買一次最低格，避免無限加碼
+      if (inZone || pos.length === 0) {
+        var qb = per / levels[0];
+        pos.push({ price: levels[0], qty: qb, i: i });
+        trades.push({ i: i, side: "buy", price: levels[0], qty: qb, pnl: 0 });
+      }
+      inZone = true;
+      lastSeg = 0;
+      continue;
+    }
+    var seg = segLow(px);
+    if (!inZone) {
+      // 重新進入區間：從上界滑進來就當作往下穿一次，買在上一條線
+      if (px < upper) {
+        var qr = per / levels[g - 1];
+        pos.push({ price: levels[g - 1], qty: qr, i: i });
+        trades.push({ i: i, side: "buy", price: levels[g - 1], qty: qr, pnl: 0 });
+      }
+      inZone = true;
+      lastSeg = seg;
+      continue;
+    }
+    var guard = 0;
+    while (seg < lastSeg && guard++ < g * 2) {
+      // 往下穿：買在剛跨過的上一格
+      var bp = lastSeg >= g ? levels[g - 1] : levels[lastSeg - 1];
+      var q = per / bp;
+      pos.push({ price: bp, qty: q, i: i });
+      trades.push({ i: i, side: "buy", price: bp, qty: q, pnl: 0 });
+      lastSeg--;
+    }
+    while (seg > lastSeg && guard++ < g * 2) {
+      lastSeg++;
+      if (pos.length) {
+        // 往上穿：賣回剛跨過的那條線，先進先出
+        var sp = levels[lastSeg];
+        var lot = pos.shift();
+        var pnl = lot.qty * (sp - lot.price);
+        realized += pnl;
+        trades.push({ i: i, side: "sell", price: sp, qty: lot.qty, pnl: pnl });
+      }
+    }
+  }
+  var openQty = pos.reduce(function (s, p) { return s + p.qty; }, 0);
+  var openCost = pos.reduce(function (s, p) { return s + p.qty * p.price; }, 0);
+  var lastPx = bars.length ? bars[bars.length - 1][4] : 0;
+  return {
+    levels: levels, trades: trades, realized: realized,
+    openQty: openQty, openCost: openCost,
+    unrealized: openQty ? openQty * lastPx - openCost : 0,
+    fills: trades.length,
+    avgCost: openQty ? openCost / openQty : null,
+    lastPx: lastPx
+  };
+}
+
+/* ---------- M3 定投（DCA）策略 ---------- */
+// cfg: { first, addAmount, dropPct, mult, maxAdds, takeProfitPct, stake }
+// 第一筆進場後，價格每再跌 dropPct，就加碼 addAmount × mult^次數，最多 maxAdds 次。
+// 全部持倉的均價漲到 均價×(1+takeProfitPct) 就全部停利，接著等下一筆首單。
+function dcaBacktest(bars, cfg) {
+  var cyclesDone = [];
+  var trades = [];      // 明細：buy / add / sell
+  var startIdx = -1;
+  var cycle = null;
+  function avgOf(ls) {
+    var q = ls.reduce(function (s, l) { return s + l.qty; }, 0);
+    var c = ls.reduce(function (s, l) { return s + l.qty * l.price; }, 0);
+    return { qty: q, cost: c, avg: q ? c / q : null };
+  }
+  for (var i = 0; i < bars.length; i++) {
+    var px = bars[i][4];
+    if (!cycle) {
+      if (startIdx < 0) startIdx = i;
+      var q0 = cfg.first / px;
+      cycle = { inIdx: i, legs: [{ price: px, qty: q0 }], adds: 0, maxCost: cfg.first, lastAddPx: px };
+      continue;
+    }
+    var a = avgOf(cycle.legs);
+    if (cycle.adds < cfg.maxAdds && px <= cycle.lastAddPx * (1 - cfg.dropPct / 100)) {
+      var amt = cfg.addAmount * Math.pow(cfg.mult || 1, cycle.adds);
+      var qa = amt / px;
+      cycle.legs.push({ price: px, qty: qa });
+      cycle.adds++;
+      cycle.maxCost = Math.max(cycle.maxCost, avgOf(cycle.legs).cost);
+      cycle.lastAddPx = px;
+      trades.push({ i: i, side: "add", price: px, qty: qa, pnl: 0 });
+      continue;
+    }
+    if (a.avg && px >= a.avg * (1 + cfg.takeProfitPct / 100)) {
+      var pnl = a.qty * px - a.cost;
+      trades.push({ i: i, side: "sell", price: px, qty: a.qty, pnl: pnl });
+      cyclesDone.push({ inIdx: cycle.inIdx, outIdx: i, avg: a.avg, exit: px,
+        invest: a.cost, pnl: pnl, adds: cycle.adds, maxCost: cycle.maxCost });
+      cycle = null;
+    }
+  }
+  var open = cycle ? avgOf(cycle.legs) : null;
+  return {
+    trades: trades,
+    cycles: cyclesDone,
+    open: cycle ? { avg: open.avg, qty: open.qty, cost: open.cost,
+      unrealized: open.qty * (bars.length ? bars[bars.length - 1][4] : 0) - open.cost,
+      adds: cycle.adds, maxCost: cycle.maxCost } : null
+  };
+}
+
+/* ---------- M3 保護機制 ---------- */
+// 連續停損後暫停：N 小時內停損 M 次 → 暫停 K 小時
+// 低獲利暫停：最近 N 筆總報酬 < X% → 暫停 K 小時
+/**
+ * @param trades 已排序的交易（含 outTime 毫秒、pnl）
+ * @param cfg { guardOn, guardN, guardM, guardK, lowOn, lowN, lowX, lowK, stake }
+ * @returns 暫停區間 [{from, to, why}]
+ */
+function protectionWindows(trades, cfg) {
+  var out = [];
+  var H = 3600000;
+  if (cfg.guardOn) {
+    var stops = [];
+    trades.forEach(function (t) {
+      if (t.why !== "停損" && t.why !== "移動停損") return;
+      stops.push(t.outTime);
+      var from = t.outTime - cfg.guardN * H;
+      var recent = stops.filter(function (x) { return x >= from && x <= t.outTime; });
+      if (recent.length >= cfg.guardM) {
+        out.push({ from: t.outTime, to: t.outTime + cfg.guardK * H, why: "連續停損" });
+      }
+    });
+  }
+  if (cfg.lowOn && cfg.lowN > 0) {
+    for (var i = cfg.lowN - 1; i < trades.length; i++) {
+      var win = trades.slice(i - cfg.lowN + 1, i + 1);
+      var ret = win.reduce(function (s, t) { return s + t.pnl; }, 0) / cfg.stake * 100;
+      if (ret < cfg.lowX) {
+        out.push({ from: trades[i].outTime, to: trades[i].outTime + cfg.lowK * H, why: "低獲利" });
+      }
+    }
+  }
+  return out;
+}
+
+function inWindow(windows, ms) {
+  return windows.some(function (w) { return ms >= w.from && ms < w.to; });
+}
 
 /* ---------- K 線原始資料轉換 ---------- */
 // Binance /api/v3/klines 原始陣列 → 引擎用的緊湊陣列

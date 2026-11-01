@@ -25,13 +25,29 @@ function readJSON(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { return fallback; }
 }
 
-export function buildStatus() {
+export const HEARTBEAT = path.join(STATE, "heartbeat.json");
+export const HEARTBEAT_STALE_MS = 180000;
+
+/** 心跳：超過 180 秒沒更新就標 alive:false（網頁顯示「機器人無回應」） */
+export function heartbeatStatus(nowMs) {
+  const hb = readJSON(HEARTBEAT, null);
+  const now = nowMs === undefined ? Date.now() : nowMs;
+  if (!hb || !Number.isFinite(hb.ms)) return { alive: false, lastHeartbeat: null, ageMs: null, stale: true };
+  const age = now - hb.ms;
+  return { alive: age <= HEARTBEAT_STALE_MS, lastHeartbeat: hb.t, ageMs: age, stale: age > HEARTBEAT_STALE_MS };
+}
+
+export function buildStatus(nowMs) {
+  const hb = heartbeatStatus(nowMs);
   return {
     ok: true,
-    now: new Date().toISOString(),
+    now: new Date(nowMs === undefined ? Date.now() : nowMs).toISOString(),
     paused: fs.existsSync(PAUSE),
     position: readJSON(path.join(STATE, "position.json"), null),
-    equity: readJSON(path.join(STATE, "equity.json"), null)
+    equity: readJSON(path.join(STATE, "equity.json"), null),
+    lastHeartbeat: hb.lastHeartbeat,
+    heartbeatAgeMs: hb.ageMs,
+    botAlive: hb.alive
   };
 }
 

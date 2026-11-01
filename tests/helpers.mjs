@@ -12,7 +12,9 @@ export function loadEngine() {
     .replace(/\/\*CORE-END\*\//, "");
   const factory = new Function(code + `
     return { sma, ema, movingAvg, to4h, backtestOn, periodBreakdown, lookaheadCheck,
-             validateConfig, evaluateRegime, toBars, toBars4h, dayKey, B_TH };`);
+             validateConfig, evaluateRegime, toBars, toBars4h, dayKey, B_TH,
+             metricsOn, reportOn, gridCombos, objectiveScore, optimizeOn, OPT_MAX,
+             gridBacktest, dcaBacktest, protectionWindows, inWindow, barsPerYear };`);
   return factory();
 }
 
