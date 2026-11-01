@@ -14,4 +14,10 @@ const build = spawnSync(process.execPath, ["tools/build.mjs", "--check"], { cwd:
 if (build.status !== 0) { console.error("build --check 失敗"); process.exit(1); }
 
 const r = spawnSync(process.execPath, ["--test", ...files], { cwd: ROOT, stdio: "inherit" });
-process.exit(r.status === 0 ? 0 : 1);
+if (r.status !== 0) { console.error("單元測試失敗"); process.exit(1); }
+
+// E2E：偵測不到 Playwright 時 e2e.mjs 會印 E2E SKIPPED 並 exit 2，這裡照傳，不算通過
+const e2e = spawnSync(process.execPath, ["tools/e2e.mjs"], { cwd: ROOT, stdio: "inherit" });
+if (e2e.status === 2) { console.error("E2E SKIPPED：沒有 Playwright，這不算通過"); process.exit(2); }
+if (e2e.status !== 0) { console.error("E2E 失敗"); process.exit(1); }
+process.exit(0);

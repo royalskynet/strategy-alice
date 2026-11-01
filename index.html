@@ -1,16 +1,73 @@
 <!DOCTYPE html>
-<html lang="zh-Hant" data-build="A2">
+<html lang="zh-Hant" data-theme="dark" data-build="M5">
 <head>
 <meta http-equiv="cache-control" content="no-cache, max-age=0"><meta http-equiv="pragma" content="no-cache">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>策略 Alice v1 — 均線回測與紙上交易</title>
 <style>
-  :root { --fg:#1c1c1e; --dim:#6e6e73; --line:#d2d2d7; --bg:#fbfbfd; --bad:#c0392b; --good:#1e7d32; --warn:#b26a00; }
+  /* 色彩 token 見 DESIGN.md §1。深色為預設，淺色由 data-theme="light" 覆寫。 */
+  :root {
+    --bg:#0f1216; --surface:#171b21; --surface-2:#1f252d;
+    --fg:#e8eaed; --dim:#9aa0a6; --line:#2b323b;
+    --accent:#4b9dff; --good:#3fb950; --bad:#f85149; --warn:#d29922;
+    --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px;
+    --fs-hero:36px; --fs-h1:22px; --fs-h2:17px; --fs-body:15px; --fs-small:13px; --fs-formula:12px;
+  }
+  html[data-theme="light"] {
+    --bg:#fbfbfd; --surface:#ffffff; --surface-2:#f4f5f8;
+    --fg:#1c1c1e; --dim:#6e6e73; --line:#d2d2d7;
+    --accent:#0071e3; --good:#1e7d32; --bad:#c0392b; --warn:#b26a00;
+  }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  /* ---- M5 硬規則 ---- */
+  body, .big, td, th, .tile .v, input, select, button, code { font-variant-numeric: tabular-nums; }
+  button, [role="tab"] { min-height:44px; min-width:44px; }
+  input, select { min-height:44px; }
+  .pos { color:var(--good); } .neg { color:var(--bad); }
+  .pos::before { content:"▲ "; font-size:.8em; }
+  .neg::before { content:"▼ "; font-size:.8em; }
+  /* 表格內的漲跌不重複符號，避免擠 */
+  td.pos::before, td.neg::before { content:""; }
+  .state { border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:8px 0; background:var(--surface); color:var(--dim); }
+  .state b { color:var(--fg); display:block; margin-bottom:2px; }
+  .state.loading { border-style:dashed; }
+  .state.empty { border-style:dashed; }
+  .state.error { border-color:var(--bad); color:var(--bad); }
+  .state.error b { color:var(--bad); }
+  .state.error pre { white-space:pre-wrap; font-size:12px; margin:8px 0 0; color:var(--dim); }
+  .state.offline { border-style:dotted; border-color:var(--warn); }
+  .state.offline b { color:var(--warn); }
+  .skel { height:12px; border-radius:6px; margin:8px 0; background:linear-gradient(90deg, var(--surface-2), var(--line), var(--surface-2)); background-size:200% 100%; animation:sk 1.4s infinite; }
+  @keyframes sk { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+  @media (prefers-reduced-motion:reduce) { .skel { animation:none; } }
+  .badge { display:inline-block; padding:3px 10px; border-radius:999px; font-size:13px; border:1px solid var(--line); color:var(--dim); }
+  .badge.run { color:var(--good); border-color:var(--good); }
+  .badge.pause { color:var(--warn); border-color:var(--warn); }
+  .badge.dead, .badge.off { color:var(--bad); border-color:var(--bad); }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; margin:8px 0 4px; }
+  .tile { border:1px solid var(--line); border-radius:10px; padding:12px 14px; background:var(--surface); }
+  .tile .k { color:var(--dim); font-size:13px; }
+  .tile .v { font-size:20px; font-weight:600; margin:4px 0 2px; }
+  .warnbox { border:1px solid var(--warn); color:var(--dim); border-radius:10px; padding:10px 14px; margin:8px 0; font-size:13px; }
+  .curve, #curve, #ddCurve { width:100%; height:80px; margin:6px 0; }
+  .formula, .muted { color:var(--dim); }
+  .formula { font-size:12px; }
+  table { width:100%; }
+  .cmp { overflow-x:auto; }
+  /* 360px：不出現橫向捲軸 */
+  @media (max-width:560px) {
+    body { padding:0 12px 40px; }
+    .grid { grid-template-columns:1fr; }
+    .row { flex-wrap:wrap; }
+    .tiles { grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); }
+    .tabs { overflow-x:auto; }
+    table { font-size:12px; }
+  }
   * { box-sizing:border-box; }
   body { margin:0; padding:0 16px 48px; font-family:-apple-system,"PingFang TC","Noto Sans TC",sans-serif; color:var(--fg); background:var(--bg); line-height:1.5; }
   .wrap { max-width:880px; margin:0 auto; }
-  .banner { background:#fff3cd; color:#7a5a00; border:1px solid #f0d27a; padding:8px 12px; border-radius:8px; margin:16px 0; font-size:15px; }
+  .banner { background:var(--surface-2); color:var(--warn); border:1px solid var(--warn); padding:8px 12px; border-radius:8px; margin:16px 0; font-size:15px; }
   h1 { font-size:22px; margin:16px 0 4px; }
   h2 { font-size:17px; margin:28px 0 8px; border-bottom:1px solid var(--line); padding-bottom:4px; }
   .sub { color:var(--dim); font-size:13px; margin:0 0 16px; }
@@ -18,11 +75,11 @@
   @media (max-width:560px){ .grid { grid-template-columns:1fr; } }
   label { display:block; font-size:14px; margin-bottom:4px; }
   .unit { color:var(--dim); font-size:12px; }
-  input { width:100%; padding:8px 10px; font-size:16px; border:1px solid var(--line); border-radius:6px; background:#fff; }
-  input.bad { border-color:var(--bad); background:#fff6f5; }
+  input { width:100%; min-height:44px; padding:8px 10px; font-size:16px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--fg); }
+  input.bad { border-color:var(--bad); background:color-mix(in srgb, var(--bad) 10%, var(--surface)); }
   .err { color:var(--bad); font-size:13px; min-height:18px; margin-top:2px; }
-  button { font-size:16px; padding:10px 18px; border-radius:8px; border:1px solid var(--line); background:#fff; cursor:pointer; }
-  button.primary { background:#0071e3; color:#fff; border-color:#0071e3; }
+  button { font-size:16px; min-height:44px; padding:10px 18px; border-radius:8px; border:1px solid var(--line); background:var(--surface); color:var(--fg); cursor:pointer; }
+  button.primary { background:var(--accent); color:#06101c; border-color:var(--accent); font-weight:600; }
   button:disabled { opacity:.5; cursor:not-allowed; }
   .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:16px 0; }
   .big { font-size:44px; font-weight:700; margin:4px 0; }
@@ -34,50 +91,50 @@
   table { width:100%; border-collapse:collapse; font-size:14px; background:#fff; }
   th, td { border:1px solid var(--line); padding:6px 8px; text-align:right; }
   th:first-child, td:first-child { text-align:left; }
-  thead th { background:#f2f2f7; }
+  thead th { background:var(--surface-2); }
   .pos { color:var(--good); }
   .neg { color:var(--bad); }
   .muted { color:var(--dim); }
-  .lost { background:#fff; border:1px dashed var(--bad); color:var(--bad); border-radius:8px; padding:18px; text-align:center; font-size:16px; }
+  .lost { background:var(--surface); border:1px dashed var(--bad); color:var(--bad); border-radius:8px; padding:18px; text-align:center; font-size:16px; }
   .footer { margin-top:36px; color:var(--dim); font-size:12px; border-top:1px solid var(--line); padding-top:12px; }
-  .paper { background:#fff; border:1px solid var(--line); border-radius:8px; padding:12px; margin-top:8px; }
+  .paper { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:12px; margin-top:8px; }
   .paper input[type=number] { max-width:180px; }
   .status { font-size:18px; font-weight:600; }
-  .adv { background:#fff; border:1px solid var(--line); border-radius:8px; padding:4px 12px 12px; margin:12px 0; }
+  .adv { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:4px 12px 12px; margin:12px 0; }
   .adv summary { cursor:pointer; font-size:15px; font-weight:600; padding:8px 0; }
   .adv h3 { font-size:14px; color:var(--dim); margin:14px 0 6px; font-weight:600; }
-  select { width:100%; padding:8px 10px; font-size:16px; border:1px solid var(--line); border-radius:6px; background:#fff; }
-  .chartwrap { background:#fff; border:1px solid var(--line); border-radius:8px; padding:8px; }
+  select { width:100%; min-height:44px; padding:8px 10px; font-size:16px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--fg); }
+  .chartwrap { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:8px; }
   #chart { height:320px; }
   @media (max-width:560px){ #chart { height:45vh; } }
   .playrow { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; }
   .playrow button { min-width:44px; min-height:44px; padding:8px 12px; }
   .curve { height:80px; margin-top:8px; }
-  tr.hl { background:#eef5ff; }
+  tr.hl { background:var(--surface-2); }
   tr.click { cursor:pointer; }
   .tabs { display:flex; gap:4px; border-bottom:1px solid var(--line); margin:12px 0 16px; position:sticky; top:0; background:var(--bg); z-index:20; }
   .tabs button { flex:1 1 0; min-height:44px; border:0; border-bottom:3px solid transparent; border-radius:0; background:transparent; font-size:15px; color:var(--dim); padding:8px 4px; }
-  .tabs button[aria-selected="true"] { color:#0071e3; border-bottom-color:#0071e3; font-weight:600; }
+  .tabs button[aria-selected="true"] { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
   .panel { display:none; }
   .panel.on { display:block; }
-  @media (max-width:560px){ .tabs { position:fixed; bottom:0; left:0; right:0; top:auto; margin:0; background:#fff; border-top:1px solid var(--line); border-bottom:0; padding-bottom:env(safe-area-inset-bottom); z-index:50; } body { padding-bottom:80px; } }
+  @media (max-width:560px){ .tabs { position:fixed; bottom:0; left:0; right:0; top:auto; margin:0; background:var(--surface); border-top:1px solid var(--line); border-bottom:0; padding-bottom:env(safe-area-inset-bottom); z-index:50; } body { padding-bottom:80px; } }
   .subtabs { display:flex; gap:8px; margin-bottom:12px; }
   .subtabs button { min-height:40px; }
-  .subtabs button[aria-selected="true"] { background:#0071e3; color:#fff; border-color:#0071e3; }
-  .stale { background:#fff3cd; border:1px solid #f0d27a; color:#7a5a00; border-radius:8px; padding:8px 12px; margin:8px 0; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .subtabs button[aria-pressed="true"] { background:var(--accent); color:#06101c; border-color:var(--accent); }
+  .stale { background:var(--surface-2); border:1px solid var(--warn); color:var(--warn); border-radius:8px; padding:8px 12px; margin:8px 0; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
   .cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:12px 0; }
-  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
   .card .k { color:var(--dim); font-size:13px; }
   .card .v { font-size:28px; font-weight:700; }
-  .preset { background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; }
+  .preset { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; }
   .preset h3 { margin:0 0 4px; font-size:16px; }
-  .drawer { position:fixed; right:0; top:0; bottom:0; width:min(420px,100%); background:#fff; border-left:1px solid var(--line); box-shadow:-8px 0 24px rgba(0,0,0,.08); transform:translateX(100%); transition:transform .2s; z-index:60; overflow:auto; padding:16px; }
+  .drawer { position:fixed; right:0; top:0; bottom:0; width:min(420px,100%); background:var(--surface); color:var(--fg); border-left:1px solid var(--line); box-shadow:-8px 0 24px rgba(0,0,0,.08); transform:translateX(100%); transition:transform .2s; z-index:60; overflow:auto; padding:16px; }
   .drawer.on { transform:none; }
   .scrim { position:fixed; inset:0; background:rgba(0,0,0,.25); z-index:55; display:none; }
   .scrim.on { display:block; }
   .chips { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
   .chips button { min-height:36px; font-size:14px; padding:6px 12px; }
-  .chips button[aria-pressed="true"] { background:#e8f0fe; border-color:#0071e3; color:#0071e3; }
+  .chips button[aria-pressed="true"] { background:var(--surface-2); border-color:var(--accent); color:var(--accent); }
   .layers { display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin:8px 0; font-size:14px; }
   .layers label { display:inline-flex; gap:6px; align-items:center; margin:0; }
   .cmp { overflow-x:auto; }
@@ -86,25 +143,64 @@
   .srcbar .banner { flex:1 1 260px; margin:0; }
   .srcbtns { display:flex; gap:6px; }
   .srcbtns button { min-height:40px; font-size:14px; }
-  .srcbtns button[aria-pressed="true"] { background:#0071e3; color:#fff; border-color:#0071e3; }
+  .srcbtns button[aria-pressed="true"] { background:var(--accent); color:#06101c; border-color:var(--accent); }
   .hero { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.2fr); gap:12px; margin:12px 0 4px; }
   @media (max-width:720px){ .hero { grid-template-columns:1fr; } }
-  .hero-left, .hero-right { background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+  .hero-left, .hero-right { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
   .px { font-size:36px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.5px; }
   .hero-right { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; align-content:start; }
-  .flag { border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:13px; }
-  .flag.on { border-color:#b26a00; background:#fff8ec; }
+  .flag { border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:13px; background:var(--surface); }
+  .flag.on { border-color:var(--warn); background:color-mix(in srgb, var(--warn) 14%, var(--surface)); }
   .flag .t { font-weight:600; display:block; }
   .flag .s { font-size:20px; font-weight:700; }
-  .flag.on .s { color:#b26a00; }
+  .flag.on .s { color:var(--warn); }
   .flag.off .s { color:var(--dim); }
   .snap { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
-  .snap .cell { background:#fff; border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .snap .cell { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
   .snap .k { font-size:12px; color:var(--dim); }
   .snap .v { font-size:20px; font-weight:600; font-variant-numeric:tabular-nums; }
   .mono { font-variant-numeric:tabular-nums; }
-  .banner.warn { background:#fff0e6; border-color:#f0b27a; color:#8a4b00; }
-  .banner.bad { background:#fdecea; border-color:#e7a29a; color:#8c2318; }
+  .banner.warn { background:var(--surface-2); border-color:var(--warn); color:var(--warn); }
+  .banner.bad { background:var(--surface-2); border-color:var(--bad); color:var(--bad); }
+
+  /* ---- M5：四種狀態、漲跌符號、主題切換、總覽與機器人 ---- */
+  .pos::before { content:"▲ "; font-size:.75em; }
+  .neg::before { content:"▼ "; font-size:.75em; }
+  .pos { color:var(--good); }
+  .neg { color:var(--bad); }
+  table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
+  th, td { border-bottom:1px solid var(--line); padding:8px 6px; text-align:right; }
+  th:first-child, td:first-child { text-align:left; }
+  th { color:var(--dim); font-weight:600; font-size:var(--fs-small); }
+  .state { border:1px solid var(--line); border-radius:10px; padding:18px; text-align:center; background:var(--surface); margin:12px 0; }
+  .state.loading { color:var(--dim); }
+  .state.loading .skel { height:12px; border-radius:6px; background:var(--surface-2); margin:8px auto; max-width:420px; animation:pulse 1.2s ease-in-out infinite; }
+  .state.loading .skel:nth-child(2) { max-width:300px; }
+  .state.loading .skel:nth-child(3) { max-width:360px; }
+  @keyframes pulse { 0%,100% { opacity:.45 } 50% { opacity:1 } }
+  .state.empty { color:var(--dim); }
+  .state.error { border-color:var(--bad); color:var(--bad); }
+  .state.error pre { text-align:left; white-space:pre-wrap; font-size:var(--fs-formula); color:var(--dim); }
+  .state.offline { border-style:dashed; color:var(--dim); }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:var(--s3); margin:var(--s3) 0; }
+  .tile { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:var(--s3) var(--s4); }
+  .tile .k { color:var(--dim); font-size:var(--fs-small); }
+  .tile .v { font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .badge { display:inline-block; border-radius:999px; padding:2px 10px; font-size:var(--fs-small); border:1px solid var(--line); }
+  .badge.run { color:var(--good); border-color:var(--good); }
+  .badge.pause { color:var(--warn); border-color:var(--warn); }
+  .badge.dead { color:var(--bad); border-color:var(--bad); }
+  .badge.off { color:var(--dim); }
+  .themebtn { min-height:44px; min-width:44px; font-size:var(--fs-small); }
+  .tabhead { display:flex; align-items:center; justify-content:space-between; gap:var(--s2); flex-wrap:wrap; }
+  .seg { display:inline-flex; gap:0; border:1px solid var(--line); border-radius:8px; overflow:hidden; margin:var(--s2) 0; }
+  .seg button { border:0; border-radius:0; min-height:44px; padding:8px 16px; background:var(--surface); }
+  .seg button[aria-selected="true"] { background:var(--accent); color:#06101c; font-weight:600; }
+  .heat { display:grid; gap:2px; font-size:var(--fs-formula); font-variant-numeric:tabular-nums; }
+  .heat div { padding:4px 2px; text-align:center; border-radius:4px; background:var(--surface-2); }
+  .log { font-size:var(--fs-small); max-height:320px; overflow:auto; font-variant-numeric:tabular-nums; }
+  .warnbox { border:1px solid var(--warn); color:var(--warn); border-radius:8px; padding:8px 12px; margin:var(--s2) 0; font-size:var(--fs-small); }
+  @media (max-width:560px){ .tile .v { font-size:22px; } th, td { padding:6px 4px; font-size:var(--fs-small); } }
 </style>
 </head>
 <body>
@@ -118,7 +214,10 @@
     </div>
   </div>
 
-  <h1>策略 Alice：回測、即時盤況與紙上交易</h1>
+  <div class="tabhead">
+    <h1>策略 Alice：回測、即時盤況與紙上交易</h1>
+    <button type="button" class="themebtn" id="themeToggle" aria-label="切換深色／淺色主題">淺色</button>
+  </div>
   <p class="sub" id="subline">BTC-USDT 現貨。示範模式用固定的 500 根 1 小時 K 線；真實模式向 Binance 現貨公開端點抓取最新 K 線，不需要帳號或金鑰。</p>
 
   <div class="hero">
@@ -126,23 +225,43 @@
       <div class="muted small">現在價格（BTC／USDT）</div>
       <div class="px" id="livePrice">—</div>
       <div class="small muted" id="liveDelta">—</div>
-      <div class="formula" id="liveSrc">尚未載入</div>
+      <div class="formula" id="liveSrc">示範資料：固定的 500 根 1 小時 K 線</div>
     </div>
     <div class="hero-right" id="flagStrip"></div>
   </div>
 
-  <nav class="tabs" role="tablist" id="tabs">
-    <button role="tab" data-tab="p-strategy" aria-selected="true">策略</button>
-    <button role="tab" data-tab="p-chart" aria-selected="false">圖表</button>
-    <button role="tab" data-tab="p-report" aria-selected="false">報告</button>
-    <button role="tab" data-tab="p-trades" aria-selected="false">明細</button>
-    <button role="tab" data-tab="p-compare" aria-selected="false">比較</button>
+  <nav class="tabs" role="tablist" id="tabs" aria-label="主要分頁" aria-owns="tab-overview tab-strategy tab-backtest tab-bot tab-compare">
+    <button role="tab" id="tab-overview" data-tab="p-overview" aria-selected="true" aria-controls="p-overview" tabindex="0">總覽</button>
+    <button role="tab" id="tab-strategy" data-tab="p-strategy" aria-selected="false" aria-controls="p-strategy" tabindex="-1">策略</button>
+    <button role="tab" id="tab-backtest" data-tab="p-backtest" aria-selected="false" aria-controls="p-backtest" tabindex="-1">回測</button>
+    <button role="tab" id="tab-bot" data-tab="p-bot" aria-selected="false" aria-controls="p-bot" tabindex="-1">機器人</button>
+    <button role="tab" id="tab-compare" data-tab="p-compare" aria-selected="false" aria-controls="p-compare" tabindex="-1">比較</button>
   </nav>
 
-  <section class="panel on" id="p-strategy">
-  <div class="subtabs" role="tablist">
-    <button type="button" id="st-preset" aria-selected="true">預設方案</button>
-    <button type="button" id="st-manual" aria-selected="false">手動</button>
+  <section class="panel on" id="p-overview" role="tabpanel" aria-labelledby="tab-overview">
+    <h2>機器人狀態</h2>
+    <div id="ovBot"></div>
+    <h2>今日與權益</h2>
+    <div class="tiles" id="ovTiles"></div>
+    <h2>目前持倉</h2>
+    <div id="ovPosition"></div>
+    <h2>四旗標（策略 B）</h2>
+    <div id="ovFlags"></div>
+    <h2>最近 5 筆成交</h2>
+    <div id="ovRecent"></div>
+    <p class="formula">狀態來自本機機器人的唯讀狀態 API（127.0.0.1:8771）。沒開機器人時顯示「未連線」，不影響回測功能。</p>
+  </section>
+
+  <section class="panel" id="p-strategy" role="tabpanel" aria-labelledby="tab-strategy">
+  <div class="seg" role="group" aria-label="策略種類" id="stratKind">
+    <button type="button" data-kind="A" aria-pressed="true" aria-pressed="true">A 均線交叉</button>
+    <button type="button" data-kind="B" aria-pressed="false" aria-pressed="false">B 盤況</button>
+    <button type="button" data-kind="grid" aria-pressed="false" aria-pressed="false">網格</button>
+    <button type="button" data-kind="dca" aria-pressed="false" aria-pressed="false">DCA 定投</button>
+  </div>
+  <div class="subtabs" role="group" aria-label="設定方式">
+    <button type="button" id="st-preset" aria-pressed="true">預設方案</button>
+    <button type="button" id="st-manual" aria-pressed="false">手動</button>
   </div>
   <div id="presetBox"></div>
   <div id="manualBox">
@@ -225,10 +344,19 @@
       <span class="muted" id="dataState"></span>
     </div>
   </form>
+  <div id="segTools"></div>
+  <div class="row"><button type="submit" class="primary" id="run">開始回測</button></div>
   </div><!-- /manualBox -->
   </section>
 
-  <section class="panel" id="p-chart">
+  <section class="panel" id="p-backtest" role="tabpanel" aria-labelledby="tab-backtest">
+  <div class="subtabs" role="tablist" aria-label="回測子分頁">
+    <button type="button" role="tab" data-bt="chart" aria-selected="true">圖表回放</button>
+    <button type="button" role="tab" data-bt="report" aria-selected="false">報告</button>
+    <button type="button" role="tab" data-bt="trades" aria-selected="false">明細</button>
+  </div>
+
+  <div id="bt-chart">
   <h2>K 線模擬</h2>
   <div class="row" style="margin:8px 0">
     <button type="button" id="btnRefresh">重新整理行情</button>
@@ -245,37 +373,76 @@
     <div class="playrow">
       <button type="button" id="pFirst" title="回到開頭" aria-label="回到開頭">⏮</button>
       <button type="button" id="pPrev" title="上一根" aria-label="上一根">◀</button>
-      <button type="button" id="pPlay" class="primary" aria-label="播放">▶ 播放</button>
+      <button type="button" id="pPlay" aria-label="播放">▶ 播放</button>
       <button type="button" id="pNext" title="下一根" aria-label="下一根">▶</button>
-      <button type="button" id="pSpeed" title="播放速度" aria-label="播放速度">1×</button>
+      <button type="button" id="pSpeed" title="播放速度" aria-label="播放速度 1 倍" aria-live="polite">1×</button>
       <span class="muted" id="pInfo" style="font-size:13px">—</span>
     </div>
     <div class="formula" id="playNote">播放時只畫到目前這一根，標記和右側損益也只算到這裡。</div>
   </div>
+  </div>
 
-  </section>
-
-  <section class="panel" id="p-report">
+  <div id="bt-report" style="display:none">
   <div id="staleReport"></div>
-  <h2>市場快照</h2>
-  <div id="snapshot"></div>
   <h2>回測結果</h2>
   <div id="result"></div>
+  <div id="metricBox"></div>
+  <h2>市場快照</h2>
+  <div id="snapshot"></div>
   <div id="periodBox"></div>
   <div id="lookaheadBox"></div>
-  </section>
+  </div>
 
-  <section class="panel" id="p-trades">
+  <div id="bt-trades" style="display:none">
   <h2>交易明細</h2>
   <div class="chips" id="filterChips"></div>
   <div id="tradeTable"></div>
   <div class="row"><button type="button" id="exportCsv">匯出 CSV</button></div>
+  </div>
   </section>
 
-  <section class="panel" id="p-compare">
+  <section class="panel" id="p-bot" role="tabpanel" aria-labelledby="tab-bot">
+    <div class="tabhead">
+      <h2>紙上機器人</h2>
+      <button type="button" id="btnBotRefresh">重新載入狀態</button>
+    </div>
+    <div id="botState"></div>
+    <h2>參數</h2>
+    <div id="botConfig"></div>
+    <h2>指令與事件紀錄</h2>
+    <div id="botJournal"></div>
+    <p class="formula">只讀。控制要用 Telegram 指令或建立 bot/PAUSE 檔案；網頁不會送出任何訂單。</p>
+  </section>
+
+  <section class="panel" id="p-compare" role="tabpanel" aria-labelledby="tab-compare">
   <h2>比較與紀錄</h2>
   <div class="row"><button type="button" id="saveRun">存這組結果</button><button type="button" id="clearRuns">清空已存結果</button></div>
   <div id="compareBox"></div>
+  <h2>參數最佳化</h2>
+  <div class="state empty" id="optIdle" hidden>還沒跑最佳化。選好兩個參數的範圍與步長，按「開始掃描」。掃描在你的瀏覽器裡跑，不會上傳任何資料。組合數上限 400。</div>
+  <div class="row" id="optForm" hidden>
+    <label style="margin:0">參數一
+      <select id="optKeyA"><option value="fast">快均線</option><option value="slow">慢均線</option><option value="sl">停損 %</option><option value="tp">停利 %</option></select>
+    </label>
+    <label style="margin:0">從 <input id="optAFrom" type="number" value="10" style="max-width:90px"></label>
+    <label style="margin:0">到 <input id="optATo" type="number" value="30" style="max-width:90px"></label>
+    <label style="margin:0">步長 <input id="optAStep" type="number" value="5" style="max-width:80px"></label>
+    <label style="margin:0">參數二
+      <select id="optKeyB"><option value="slow">慢均線</option><option value="fast">快均線</option><option value="sl">停損 %</option><option value="tp">停利 %</option></select>
+    </label>
+    <label style="margin:0">從 <input id="optBFrom" type="number" value="60" style="max-width:90px"></label>
+    <label style="margin:0">到 <input id="optBTo" type="number" value="120" style="max-width:90px"></label>
+    <label style="margin:0">步長 <input id="optBStep" type="number" value="20" style="max-width:80px"></label>
+    <label style="margin:0">目標
+      <select id="optObj"><option value="totalRet">總報酬</option><option value="sharpe">夏普</option><option value="calmar">卡瑪</option><option value="retdd">報酬÷回撤</option></select>
+    </label>
+  </div>
+  <div class="row" id="optActions" hidden>
+    <button type="button" class="primary" id="optRun">開始掃描</button>
+    <button type="button" id="optCancel" hidden>取消</button>
+    <span class="muted" id="optProgress"></span>
+  </div>
+  <div id="optResult"></div>
   <h2>紙上交易計數</h2>
   <div class="paper">
     <p class="sub" style="margin-top:0">每天記一筆模擬損益。超過每日虧損上限的那天，連續遵守天數歸零重算。紀錄只存在這台電腦的瀏覽器裡。</p>
@@ -300,7 +467,7 @@
   </div>
 </div>
 
-<script>/* lightweight-charts 5.2.1 內嵌 */
+<script>/* lightweight-charts 5.2.1 內嵌（官方 standalone.production.js，Apache-2.0） */
 /*!
  * @license
  * TradingView Lightweight Charts™ v5.2.1
@@ -315,7 +482,9 @@
 
 // ---- 示範資料：500 根 BTC-USDT 1 小時 K 線 ----
 // 每根：[距起始時點的小時數, 開, 高, 低, 收, 量]
-var START_MS = 1790697600000;
+var START_MS = 1790697600000; // 示範資料的時鐘原點：之後的持久化會把它往前推
+var DEMO_SEED = START_MS;
+
 var BARS = [[0,68200,68232.5,68056.6,68174.3,506.08],[1,68174.3,68250.8,68117.9,68168.1,403.03],[2,68168.1,68293.1,68010.5,68120.7,690.52],[3,68120.7,68178.7,68099.3,68135.4,440.26],[4,68135.4,68136.3,68103.5,68133.2,600.51],[5,68133.2,68251.9,68089.6,68160.7,310.95],[6,68160.7,68273,67999.8,68129.7,645.17],[7,68129.7,68311.5,68098.7,68180.4,572.1],[8,68180.4,68351.7,68178.5,68219,471.15],[9,68219,68259.7,68154.2,68202.5,521.28],[10,68202.5,68226.5,68188.5,68205.9,350.92],[11,68205.9,68305.7,68094.5,68177.8,512.31],[12,68177.8,68245.2,68107.2,68136.6,518.52],[13,68136.6,68207,68000.9,68094.8,582.22],[14,68094.8,68129.3,68037.7,68064,629.77],[15,68064,68205.9,68053.5,68087.1,580.27],[16,68087.1,68177.3,67915.1,68050.1,641.21],[17,68050.1,68175.9,68026.3,68086.2,609.82],[18,68086.2,68181.2,67981.1,68051.1,308.11],[19,68051.1,68157.1,68042.7,68095.3,639.49],[20,68095.3,68220,67953.3,68069.9,648.8],[21,68069.9,68219.4,67943.6,68098.5,428.52],[22,68098.5,68181.5,68057.5,68093.2,327.42],[23,68093.2,68096.9,67957.1,68063.9,437.09],[24,68063.9,68090.7,68040.4,68088,375.91],[25,68088,68230.3,68023,68139.4,597.74],[26,68139.4,68268.3,68091.3,68110.1,610.26],[27,68110.1,68168,68064.5,68118.2,513.2],[28,68118.2,68126.8,68089.7,68116.5,581.92],[29,68116.5,68119.4,68067.3,68070.4,500.46],[30,68070.4,68116.5,68038.1,68055.2,669.81],[31,68055.2,68066.8,67934.9,68039.9,559.64],[32,68039.9,68077.7,67963.2,68052.8,664.38],[33,68052.8,68165.7,67986.8,68016.4,514.17],[34,68016.4,68101.3,67881.2,67991.3,581.46],[35,67991.3,68068.1,67884.3,68022.8,390.7],[36,68022.8,68153.8,67976.1,68076.6,695.29],[37,68076.6,68194,67952.1,68049.2,591.07],[38,68049.2,68146.2,67963.4,68034.3,674.93],[39,68034.3,68052.9,67952.8,68014.4,462.41],[40,68014.4,68099.5,67955.8,68018.9,427.62],[41,68018.9,68019.3,67867.7,67965.9,433.56],[42,67965.9,68099,67877.2,67927,534.9],[43,67927,67985.4,67809.9,67928.9,495.53],[44,67928.9,68033.3,67850.8,67951.3,421.57],[45,67951.3,68021.8,67905.8,67932.3,416.18],[46,67932.3,68022.9,67895.7,67919.3,547.52],[47,67919.3,67983.5,67863.7,67963.4,317.91],[48,67963.4,68033.6,67895.1,67922.9,354.09],[49,67922.9,67955.8,67902.6,67926.1,668.1],[50,67926.1,68029.2,67841.8,67880.1,636.14],[51,67880.1,67995.3,67833.2,67856.1,554.03],[52,67856.1,67961.9,67770.2,67869,522.71],[53,67869,67929.1,67830.2,67885.9,474.07],[54,67885.9,68034.3,67873.4,67906.9,595.75],[55,67906.9,67918.8,67717.5,67851,560.93],[56,67851,67926,67846.1,67850.2,666.96],[57,67850.2,67873.8,67823.2,67849.6,648.16],[58,67849.6,67922.2,67657.4,67791.2,472.42],[59,67791.2,67849.9,67718.4,67730.4,519.6],[60,67730.4,67775.5,67545.2,67662.6,410.79],[61,67662.6,67696.4,67464.9,67596.6,687.28],[62,67596.6,67708.8,67536.7,67563.2,365.83],[63,67563.2,67605.5,67557.1,67573.7,698.96],[64,67573.7,67637.2,67458.8,67553.7,666.63],[65,67553.7,67659.1,67515.3,67557.4,477.18],[66,67557.4,67646.4,67477.6,67504.1,611.03],[67,67504.1,67553.1,67503,67536,362.32],[68,67536,67614.2,67476.7,67516.7,484.88],[69,67516.7,67624.2,67379.6,67508,415.27],[70,67508,67626.1,67398.5,67520.4,373.07],[71,67520.4,67527,67440.2,67508.8,476.07],[72,67508.8,67656.8,67478.7,67549.3,346.52],[73,67549.3,67574.8,67504.4,67539.9,691.21],[74,67539.9,67610.9,67471.9,67504.8,375.05],[75,67504.8,67616.4,67456.2,67487.4,543.54],[76,67487.4,67531.7,67442.8,67495.4,626.62],[77,67495.4,67568.1,67458,67501.9,595.71],[78,67501.9,67615.4,67363.2,67449.6,699.53],[79,67449.6,67514,67441.4,67499.9,426.1],[80,67499.9,67524.8,67408.5,67465.3,374.88],[81,67465.3,67558.7,67368.8,67443.6,658.4],[82,67443.6,67504.7,67404.8,67406.7,640.69],[83,67406.7,67501.2,67232,67356.3,673.31],[84,67356.3,67480,67209.1,67298.3,361.87],[85,67298.3,67329.9,67169.7,67300.2,301.96],[86,67300.2,67421.6,67160.9,67273.4,495.8],[87,67273.4,67415.9,67256.3,67294.2,345.43],[88,67294.2,67297.7,67221.7,67222.5,570.11],[89,67222.5,67250.5,67196.1,67224.9,474.85],[90,67224.9,67291.3,67065,67197.4,667.89],[91,67197.4,67294.9,67116.8,67211.8,666.22],[92,67211.8,67509.6,67205.8,67381.9,487.84],[93,67381.9,67637.1,67274.3,67602.2,478.23],[94,67602.2,67808.8,67572.2,67766.2,451.99],[95,67766.2,68001.7,67751.5,67881.6,318.05],[96,67881.6,68071.6,67759.9,68058,357.31],[97,68058,68293.3,67977,68255.6,509.52],[98,68255.6,68468.1,68193,68432.9,615.93],[99,68432.9,68644,68381.7,68568.6,415.3],[100,68568.6,68787.1,68494.1,68713.1,470.07],[101,68713.1,68877.8,68662.8,68808.9,579.27],[102,68808.9,68933.7,68743,68861.2,363.55],[103,68861.2,69009.3,68789.8,68938,526.15],[104,68938,69106.1,68809,69012.1,343.46],[105,69012.1,69221.5,68973.6,69123.1,424.59],[106,69123.1,69269.8,69009.9,69237.6,669.23],[107,69237.6,69385.5,69188.4,69362.6,642.02],[108,69362.6,69488.1,69343.5,69463.4,384.75],[109,69463.4,69518.8,69381.3,69512.1,621.32],[110,69512.1,69689.8,69409.1,69598.4,639.27],[111,69598.4,69796.7,69550,69749.9,377.06],[112,69749.9,69793.7,69639.6,69760.1,398.54],[113,69760.1,69873.4,69741.6,69761.7,342.24],[114,69761.7,69866.6,69707.4,69795.5,467.18],[115,69795.5,69922,69697.6,69752.9,592.62],[116,69752.9,69820.7,69630.9,69772.9,386.03],[117,69772.9,69798.3,69624.2,69760.7,677.44],[118,69760.7,69890.9,69674,69814.6,370.59],[119,69814.6,69858.2,69786,69808,474.17],[120,69808,69882,69703.9,69802.1,347.95],[121,69802.1,69841.9,69673.8,69835.5,607.13],[122,69835.5,69952.3,69762.4,69850.9,352.05],[123,69850.9,69944.9,69762.4,69817.9,414],[124,69817.9,69870.5,69778.1,69833.5,367.07],[125,69833.5,69917.6,69772.9,69852.3,547.97],[126,69852.3,69883.9,69792.6,69822.4,321.78],[127,69822.4,69864.3,69689.5,69823.8,664.17],[128,69823.8,69858.5,69772.4,69824.6,603.87],[129,69824.6,69853.6,69712.2,69819.6,628.96],[130,69819.6,69938.6,69782.3,69882.9,328.81],[131,69882.9,70133.7,69764.4,70025.7,463.83],[132,70025.7,70130.4,69976.5,70072.5,329.32],[133,70072.5,70141.3,69935.7,70119.2,656.21],[134,70119.2,70279.9,70047.9,70216.8,656.44],[135,70216.8,70331.8,70107.5,70321.7,361.82],[136,70321.7,70406.6,70315.1,70399.6,463.99],[137,70399.6,70494.7,70309.7,70459.2,471.25],[138,70459.2,70674.2,70406.1,70612.1,490.89],[139,70612.1,70722.3,70583.9,70684.1,350.49],[140,70684.1,70850.2,70641,70833.2,528.84],[141,70833.2,70966.5,70830.4,70882.1,497.8],[142,70882.1,71003.2,70659.2,70799.5,676.25],[143,70799.5,70834.9,70692.8,70774.9,604.08],[144,70774.9,70904.5,70675.7,70750.5,592.52],[145,70750.5,70855,70599.1,70693.7,567.4],[146,70693.7,70833.4,70522.6,70584.7,558.48],[147,70584.7,70654.9,70472.7,70533,396.2],[148,70533,70589,70301.2,70431.9,443.14],[149,70431.9,70531.1,70258.8,70330.1,572.64],[150,70330.1,70428.7,70115.8,70252.5,411.2],[151,70252.5,70290.7,70042.6,70153.7,316.27],[152,70153.7,70157.8,70003.3,70053.2,541.38],[153,70053.2,70176,69955.7,69970,684.5],[154,69970,69992.3,69835.1,69935.3,687.8],[155,69935.3,70020.9,69765.6,69845,300.75],[156,69845,69850.5,69733,69774.4,373.87],[157,69774.4,69864,69628.4,69663,409.34],[158,69663,69754.7,69545.1,69550.3,460.25],[159,69550.3,69600.1,69409.2,69467.2,370.17],[160,69467.2,69538.4,69214.5,69343.7,516.4],[161,69343.7,69420.9,69237.4,69245.5,454.33],[162,69245.5,69349.5,69211.6,69292.7,326.69],[163,69292.7,69428.1,69204.8,69272.5,546.97],[164,69272.5,69344,69208.4,69241.9,392.97],[165,69241.9,69353.7,69239.6,69258.3,583.74],[166,69258.3,69392.2,69204.7,69205.3,332.81],[167,69205.3,69240.7,69185.3,69192,613.77],[168,69192,69223,69050.2,69169.4,481.93],[169,69169.4,69321,69124.5,69188.2,552.04],[170,69188.2,69265.5,69141.4,69227.7,404.21],[171,69227.7,69302.8,69058.9,69196.4,384.44],[172,69196.4,69198.6,69153.1,69188.3,580.39],[173,69188.3,69201.1,69056.1,69171.2,535.74],[174,69171.2,69207.6,69052.9,69194,471.99],[175,69194,69280.8,69106.3,69173.9,495.16],[176,69173.9,69276.3,69098.4,69118.8,683.25],[177,69118.8,69141.7,69099,69126.4,477.27],[178,69126.4,69163.7,69058.3,69092.1,399.58],[179,69092.1,69220.1,68942.4,69040.6,349.62],[180,69040.6,69047.3,68896.9,68991.1,662],[181,68991.1,68996.6,68853.7,68944.9,556.34],[182,68944.9,69048.9,68843.1,68905.1,573.23],[183,68905.1,68968.2,68848.8,68863,633.44],[184,68863,68913.8,68715.4,68781.6,472.28],[185,68781.6,68836.4,68684.9,68703.2,331.87],[186,68703.2,68810.8,68551.1,68589.2,518.63],[187,68589.2,68592.1,68446.4,68456.6,654.67],[188,68456.6,68506.5,68389.2,68397.4,311.18],[189,68397.4,68491.3,68340.3,68352.9,593.93],[190,68352.9,68451.5,68147.2,68224.3,639.45],[191,68224.3,68320.9,68098.1,68127.9,618.45],[192,68127.9,68480.7,68076.2,68364.3,432.22],[193,68364.3,68646,68286.2,68600.2,662.13],[194,68600.2,68798.4,68574,68797.4,606.91],[195,68797.4,69068.6,68776.7,68961.6,643.97],[196,68961.6,69272.4,68875.8,69193.5,540.48],[197,69193.5,69485.9,69185.7,69423.3,476.45],[198,69423.3,69684,69414.5,69624.2,300.34],[199,69624.2,69915,69523.9,69842.1,678.58],[200,69842.1,69885.1,69681.2,69705.4,303.3],[201,69705.4,69760.3,69504,69643.3,467.25],[202,69643.3,69701.1,69450.7,69504.8,452.4],[203,69504.8,69594.2,69431,69454,390.37],[204,69454,69585.6,69328.1,69330,368.56],[205,69330,69367.8,69162.6,69194.3,680.54],[206,69194.3,69265.3,69091.9,69135.3,529.94],[207,69135.3,69233.3,68952.2,69076.6,352.95],[208,69076.6,69206,68934.8,68966.8,630.02],[209,68966.8,69103.5,68789,68860,515.16],[210,68860,68987.9,68762.2,68815.1,694.41],[211,68815.1,68913.4,68587.1,68678.6,679.99],[212,68678.6,68790.2,68638.3,68652.3,345.13],[213,68652.3,68807.7,68617.5,68679.1,518.72],[214,68679.1,68729.1,68625.2,68711.4,335.98],[215,68711.4,68792.8,68658,68702.3,437.96],[216,68702.3,68747.6,68575.9,68723.3,598.31],[217,68723.3,68744.5,68638.4,68674,614.01],[218,68674,68787.4,68624.8,68719,334.61],[219,68719,68787.1,68669.4,68675.7,588.14],[220,68675.7,68724.7,68644.4,68661.6,630],[221,68661.6,68718.8,68622.9,68643.2,544.37],[222,68643.2,68729.1,68608.1,68668.8,493.46],[223,68668.8,68797.3,68577,68633.5,427.13],[224,68633.5,68761.3,68528.7,68683,545.79],[225,68683,68757.1,68590.2,68694.8,491.3],[226,68694.8,68823.6,68609.4,68749.6,318.84],[227,68749.6,68755.1,68658.4,68733.2,575.61],[228,68733.2,68741.7,68554.9,68682.3,463.29],[229,68682.3,68709.6,68635,68703.6,600.84],[230,68703.6,68840.3,68560.3,68595.6,675.98],[231,68595.6,68645.6,68455.9,68547.3,507.5],[232,68547.3,68557.7,68385.2,68439,670.82],[233,68439,68483.8,68243,68332.4,591.43],[234,68332.4,68436.4,68175,68244.7,336.38],[235,68244.7,68283.5,68125.7,68166,518.25],[236,68166,68225.1,68095.1,68115.8,333.44],[237,68115.8,68180.5,67963.7,67978.6,622.67],[238,67978.6,68114.1,67760.7,67859.6,604],[239,67859.6,67982.7,67802.9,67817.8,356.86],[240,67817.8,67907.8,67748.6,67767.7,623.2],[241,67767.7,67785.4,67544,67628.3,699.33],[242,67628.3,68299.7,67543.5,68170.1,353.05],[243,68170.1,68760.6,68043,68684.5,370.32],[244,68684.5,69234.6,68653.4,69191.7,630.78],[245,69191.7,69737.9,69179.2,69653.4,356.23],[246,69653.4,70214.9,69626.7,70197.9,351.03],[247,70197.9,70880.3,70192.3,70739.3,443.52],[248,70739.3,71232.7,70708.1,71219.9,429.68],[249,71219.9,71888.5,71190.3,71791.5,541.41],[250,71791.5,72028.5,71746.1,71888,343.29],[251,71888,71997.7,71860,71966.5,562.49],[252,71966.5,72167.8,71827,72038.6,509.17],[253,72038.6,72108.1,71946.8,72081.6,517.31],[254,72081.6,72186,72028.5,72172.2,496.09],[255,72172.2,72366.5,72039,72282.8,519.8],[256,72282.8,72401.2,72174.4,72387.8,403],[257,72387.8,72483.4,72330.4,72473.1,353.74],[258,72473.1,72610.9,72345.9,72604.8,464.81],[259,72604.8,72669.7,72581.4,72625,311.94],[260,72625,72873.7,72558.2,72749.3,498.26],[261,72749.3,72924.9,72651,72872.8,311.7],[262,72872.8,72930,72700,72838.5,613.04],[263,72838.5,72884.8,72712.7,72806.6,589.51],[264,72806.6,72979.7,72673.1,72861.1,607.01],[265,72861.1,72938.1,72853.5,72872.4,348.68],[266,72872.4,72949.1,72775.2,72871.1,552.35],[267,72871.1,72997.5,72711.6,72816.1,512.98],[268,72816.1,72847.9,72681.8,72831.2,598.95],[269,72831.2,72882.9,72686.1,72824.8,507.66],[270,72824.8,73019.2,72694.9,72877.7,609.62],[271,72877.7,72907.8,72738.4,72832.3,573.11],[272,72832.3,72871.8,72724.8,72791.8,488],[273,72791.8,72924,72707.8,72832.7,439.4],[274,72832.7,72897.7,72711.6,72801,594.08],[275,72801,72950,72722.9,72851.6,425.9],[276,72851.6,72996.4,72693.2,72804.1,491.61],[277,72804.1,72856.9,72674,72774.8,694.61],[278,72774.8,72866.5,72670.3,72738.6,469.49],[279,72738.6,72887.3,72724.2,72778.7,318.25],[280,72778.7,73039.8,72673.2,72904.8,699.44],[281,72904.8,73026,72855.4,73016.9,454.75],[282,73016.9,73097.3,72981.2,73095.7,440.96],[283,73095.7,73250.9,73010.8,73212.3,315.74],[284,73212.3,73430.6,73162.2,73314,410.03],[285,73314,73536.7,73265.8,73438.4,332.91],[286,73438.4,73683.6,73428.8,73557.8,339.44],[287,73557.8,73776.7,73483,73642,664.68],[288,73642,73850.2,73560.5,73727.4,621.47],[289,73727.4,73979.9,73664.6,73835.4,346.59],[290,73835.4,74080.7,73807.4,73932.9,595.62],[291,73932.9,74137.1,73837.5,74043.2,655.45],[292,74043.2,74087.4,73882.9,73987.2,336.71],[293,73987.2,74112.2,73785.8,73912.7,600.47],[294,73912.7,73974.5,73787.8,73794.5,540.12],[295,73794.5,73837.2,73586.9,73690,311.73],[296,73690,73701.9,73553.9,73564.5,510.07],[297,73564.5,73573,73423.2,73442.7,478.83],[298,73442.7,73578.5,73269.2,73389.5,421.52],[299,73389.5,73486.5,73143.5,73283.7,343.23],[300,73283.7,73398.2,73197,73233.5,395.32],[301,73233.5,73325,73033.8,73155,637.84],[302,73155,73185.2,73152.8,73158.7,539.98],[303,73158.7,73280.6,73020.9,73078.1,450.34],[304,73078.1,73147.2,73033.4,73042,380.19],[305,73042,73043.4,72837.2,72946.6,535.08],[306,72946.6,73014.1,72832.3,72925.7,671.37],[307,72925.7,72942.4,72803.1,72838.9,624.08],[308,72838.9,72950.1,72675.8,72795.3,335.76],[309,72795.3,72911.7,72704.2,72775.8,400.47],[310,72775.8,72801.3,72552.2,72683.5,666.14],[311,72683.5,72700.3,72664.9,72694.7,309.11],[312,72694.7,72762,72580.1,72656.5,631.77],[313,72656.5,72777.2,72544,72655.4,401.22],[314,72655.4,72679.4,72584,72655.4,335.41],[315,72655.4,72729.7,72648.4,72660.7,561.21],[316,72660.7,72713.1,72606.9,72622.2,693.11],[317,72622.2,72730.3,72590.4,72668,599.22],[318,72668,72801.2,72538.9,72641.5,356.27],[319,72641.5,72756.2,72612,72679.8,604.99],[320,72679.8,72808.9,72596.4,72670,404.68],[321,72670,72737.6,72553.5,72672.9,598.04],[322,72672.9,72722.3,72571.8,72705,320.71],[323,72705,72758.7,72568,72729.8,434.08],[324,72729.8,72805.1,72657.4,72728.5,326.11],[325,72728.5,72843.5,72603.4,72724.5,548.68],[326,72724.5,72798.3,72671.9,72766.9,324.04],[327,72766.9,72832.1,72703.8,72824.9,627.67],[328,72824.9,72880.5,72757.8,72845.7,410.09],[329,72845.7,72855.3,72702.9,72825,541.37],[330,72825,72851.9,72728.8,72793,605.37],[331,72793,72871,72615.9,72752.4,533.32],[332,72752.4,72773.2,72671.4,72757.3,413.13],[333,72757.3,72885,72531.1,72670.8,467.7],[334,72670.8,72798.2,72570.3,72662.5,501.39],[335,72662.5,72751.1,72606.1,72626.1,473.77],[336,72626.1,72634.7,72546.5,72569,477.25],[337,72569,72628.3,72495.7,72572,529.06],[338,72572,72646.7,72434,72567.4,627.19],[339,72567.4,72649.8,72476.4,72498.8,516],[340,72498.8,72552,72411.4,72467.7,619.46],[341,72467.7,72598.4,72360.7,72419.8,306.05],[342,72419.8,72721.7,72402.4,72661.1,367.44],[343,72661.1,72957.2,72646.3,72920.2,427.25],[344,72920.2,73283.7,72862.4,73195.5,400.56],[345,73195.5,73470.2,73127.1,73431.4,698.23],[346,73431.4,73742.7,73356,73737.7,368.37],[347,73737.7,74107,73687.3,74040.8,414.72],[348,74040.8,74467,73893.5,74336.5,456.37],[349,74336.5,74702.9,74217.2,74587.4,573.72],[350,74587.4,74772.3,74549.3,74704.8,595.83],[351,74704.8,74919.1,74576.5,74778.4,591.24],[352,74778.4,74846.4,74729.5,74827.1,518.99],[353,74827.1,74959.8,74682.3,74867.5,471.77],[354,74867.5,75041.3,74781.9,75018.6,630.85],[355,75018.6,75109.4,74928.5,75086.4,483.62],[356,75086.4,75216.9,74987.1,75195.4,464.63],[357,75195.4,75371.9,75129.7,75278.1,662.42],[358,75278.1,75428,75167.3,75398.7,412.33],[359,75398.7,75594.5,75253.8,75517.1,638.38],[360,75517.1,75718.6,75394.9,75646.5,320.9],[361,75646.5,75869.2,75625.2,75759.5,624.97],[362,75759.5,75895.1,75661.8,75722,438.71],[363,75722,75832,75691.9,75746.6,379.81],[364,75746.6,75811.7,75557.4,75700.3,451.54],[365,75700.3,75808.4,75675.4,75704.8,562.32],[366,75704.8,75798.1,75634.4,75737.1,364.09],[367,75737.1,75758.5,75706.2,75717.2,681.09],[368,75717.2,75759.2,75674.6,75738.5,677.22],[369,75738.5,75799.1,75633.9,75738.9,439.79],[370,75738.9,75830.6,75647.2,75798.8,410.29],[371,75798.8,75849.6,75710,75789,535.04],[372,75789,75897,75788.9,75799.9,609.02],[373,75799.9,75824.6,75689.5,75768.8,537.53],[374,75768.8,75820.2,75628.2,75792.5,402.6],[375,75792.5,75819.9,75658.1,75780.8,677.27],[376,75780.8,75906.4,75590.1,75724.4,504.78],[377,75724.4,75871.4,75609.8,75757.4,519.7],[378,75757.4,75831.6,75683.3,75807.6,645.87],[379,75807.6,75938.8,75708.2,75829.1,406.6],[380,75829.1,76057.7,75718.7,75941.8,432.43],[381,75941.8,76108.1,75940.5,76069.1,621.78],[382,76069.1,76110,76050.4,76108.9,580.07],[383,76108.9,76351.6,76090.6,76213.6,549.46],[384,76213.6,76414.8,76172.4,76283,349.35],[385,76283,76431.3,76240.4,76339.9,368.08],[386,76339.9,76472.7,76250.8,76380.8,601.43],[387,76380.8,76613.7,76340.9,76490.1,608.33],[388,76490.1,76663.7,76423.4,76644.8,419.82],[389,76644.8,76776.5,76587.1,76738.5,682.13],[390,76738.5,76977.7,76723,76852.4,474],[391,76852.4,77009.7,76760.8,76908.3,452.05],[392,76908.3,76921.7,76703.2,76802.9,361.37],[393,76802.9,76846.1,76644,76708.7,505.44],[394,76708.7,76756.6,76524.4,76631.9,433.86],[395,76631.9,76771.8,76465.5,76560.8,669.48],[396,76560.8,76581.1,76413.1,76417.3,498.86],[397,76417.3,76472.3,76374.5,76378.4,628.49],[398,76378.4,76451.7,76171.9,76225.5,429.37],[399,76225.5,76366.6,75975.1,76109.2,632.79],[400,76109.2,76319.7,75963,76235.4,441.56],[401,76235.4,76337.1,76152.8,76275,310.03],[402,76275,76397.3,76152.2,76328.1,355.07],[403,76328.1,76504.9,76220.1,76385.8,448.94],[404,76385.8,76500.6,76274.5,76430.7,585.86],[405,76430.7,76580.1,76360,76528.3,448.58],[406,76528.3,76705,76518.7,76679.9,521.55],[407,76679.9,76816.6,76613.9,76772.2,442.06],[408,76772.2,76998.1,76641.5,76877.9,468.65],[409,76877.9,77063.7,76734.5,76914.6,664.73],[410,76914.6,77077.4,76845.2,76972.3,359.03],[411,76972.3,77099,76837.9,77092.1,492.9],[412,77092.1,77249.7,77025.5,77116.3,372.92],[413,77116.3,77184.4,77063.1,77167.2,683.34],[414,77167.2,77182.5,77067.9,77155.9,349.29],[415,77155.9,77299.2,77022.6,77128.9,403.02],[416,77128.9,77130.5,76998,77125.9,674.27],[417,77125.9,77253.2,77007.2,77182.5,350.9],[418,77182.5,77323.1,77111.7,77220,393.21],[419,77220,77338.3,77213.3,77278.9,570.39],[420,77278.9,77340.1,77226.7,77233.6,397.84],[421,77233.6,77312.9,77053.9,77190.1,334.17],[422,77190.1,77204.1,77079.5,77182,444.98],[423,77182,77226,77127.2,77178.5,650.8],[424,77178.5,77209.3,76995.2,77142.5,456.31],[425,77142.5,77317.7,77070.1,77185,660.41],[426,77185,77260.8,77116.1,77156.2,362.26],[427,77156.2,77223.4,77047.7,77146.3,653.06],[428,77146.3,77194.4,77079.6,77152.8,375.97],[429,77152.8,77224,77057,77158.6,484.54],[430,77158.6,77327.7,77085.9,77244.8,640.39],[431,77244.8,77462.1,77226.9,77329,597.33],[432,77329,77531.2,77302,77413.5,563.76],[433,77413.5,77597.9,77335.4,77539,664.99],[434,77539,77744.7,77450.4,77643.8,603.31],[435,77643.8,77864.8,77609.7,77776.1,370.29],[436,77776.1,78016.5,77653.7,77872.1,615.89],[437,77872.1,78068.7,77817.6,77962.5,636.7],[438,77962.5,78130.2,77886.2,78023.7,530.91],[439,78023.7,78194,77915.8,78141.6,399.5],[440,78141.6,78297.7,78023.9,78232.4,697.91],[441,78232.4,78418.5,78147.7,78306.9,481.59],[442,78306.9,78385.4,78143.8,78187.8,541.77],[443,78187.8,78239.6,77938.5,78084.4,429.25],[444,78084.4,78141.5,78006.8,78012.3,652.91],[445,78012.3,78139.5,77799.3,77908.9,589.36],[446,77908.9,78041.5,77704.7,77755.9,432.6],[447,77755.9,77830,77635.5,77643.5,379.35],[448,77643.5,77695.6,77407.4,77495.7,478.88],[449,77495.7,77534.6,77292.8,77374.4,392.18],[450,77374.4,77380.9,77207.9,77268.1,421.65],[451,77268.1,77296.4,77155,77235.8,624.85],[452,77235.8,77248.1,77108.5,77165.2,584.07],[453,77165.2,77214.6,76976.3,77109.4,576.43],[454,77109.4,77116.6,76957,77077.6,565.66],[455,77077.6,77108.8,76972.9,76980.2,427.09],[456,76980.2,77002.2,76789.1,76897.2,334.7],[457,76897.2,77041.4,76714.4,76799.9,554.07],[458,76799.9,76919.4,76643.9,76719.1,547.92],[459,76719.1,76741.9,76562.1,76620.8,316.36],[460,76620.8,76674.4,76487.2,76494.7,525.83],[461,76494.7,76546.8,76344.7,76463.9,673.38],[462,76463.9,76579.5,76301.1,76445.5,326.3],[463,76445.5,76568,76433.2,76488.3,671.4],[464,76488.3,76535.5,76476.5,76513.8,458.17],[465,76513.8,76591.7,76358.2,76500.7,631.52],[466,76500.7,76585.5,76416.1,76527.7,489.22],[467,76527.7,76669.4,76375.5,76586.1,422.49],[468,76586.1,76601.8,76481.9,76570.7,564.57],[469,76570.7,76684.5,76461.7,76531.8,496.13],[470,76531.8,76660.2,76463.2,76485.4,570.19],[471,76485.4,76582.5,76457.5,76510.6,380.04],[472,76510.6,76624.3,76370.6,76468.3,430.79],[473,76468.3,76568.3,76360.5,76486,667.76],[474,76486,76549.1,76365.1,76521,367.35],[475,76521,76672,76408.2,76485.7,346.5],[476,76485.7,76574.6,76463.1,76469.4,376.47],[477,76469.4,76543.6,76437.9,76496,499.88],[478,76496,76544.2,76402.1,76528.9,583.4],[479,76528.9,76707.4,76426.9,76560.9,547.68],[480,76560.9,76600.2,76300.5,76450.2,502.92],[481,76450.2,76543.3,76358.1,76363.9,473.41],[482,76363.9,76492.1,76201.6,76234.2,501.85],[483,76234.2,76348.2,76021.7,76138.7,667.48],[484,76138.7,76247.4,75975.2,76039.4,362.57],[485,76039.4,76114.1,75824.7,75899.3,473.04],[486,75899.3,76012,75691.6,75821.9,602.01],[487,75821.9,75961.5,75762.9,75794.7,353.11],[488,75794.7,75891,75555.3,75673.5,351.42],[489,75673.5,75684.1,75472.4,75557.8,550.62],[490,75557.8,75610.5,75384.4,75472.8,355.33],[491,75472.8,75523.2,75323.2,75390.3,375.66],[492,75390.3,75672.8,75362.9,75627.8,421.42],[493,75627.8,75949.1,75505.8,75845.4,640.77],[494,75845.4,76104.3,75824.3,76051.9,458.36],[495,76051.9,76313,75994.2,76299.2,301.67],[496,76299.2,76620,76258.5,76501.5,648.74],[497,76501.5,76657.2,76349.5,76631.6,678.61],[498,76631.6,76915.2,76490.3,76781.3,319.3],[499,76781.3,77030,76669.5,77019.8,464.39]];
 var BARS_OK = true; // 設為 false 即「資料失效」
 
@@ -1244,7 +1413,7 @@ function toBars4h(raw) { return toBars(raw); }
 /*CORE-END*/
 
 // 示範資料的時間：索引 -> 毫秒
-function demoClock(h) { return START_MS + h * 3600000; }
+function demoClock(h) { return DEMO_SEED + h * 3600000; }
 function backtest(cfg) { return backtestOn(BARS, cfg, demoClock); }
 
 var LAST = null; // 最近一次回測，給圖表用
@@ -1257,7 +1426,7 @@ function render(result, cfg) {
     LAST = null; drawChart();
     return;
   }
-  LAST = { result: result, cfg: cfg };
+  LAST = { result: result, cfg: cfg, metrics: metricsOn(result, { cfg: cfg }) };
   var cls = result.totalRet > 0 ? "pos" : result.totalRet < 0 ? "neg" : "";
   var html = "";
   html += '<div class="muted">總報酬（%，已扣手續費與滑價；每筆投入見下方公式）</div>';
@@ -1336,9 +1505,10 @@ function drawCurve() {
   if (!host || !LAST || !win.LightweightCharts) { if (host) host.innerHTML = ""; return; }
   host.innerHTML = "";
   if (win.__curve) { try { window.__curve.remove(); } catch (e) {} }
-  var c = LightweightCharts.createChart(host, { height: 80, layout: { background: { color: "#fff" }, textColor: "#6e6e73" },
+  var tk = chartTheme();
+  var c = LightweightCharts.createChart(host, { height: 80, layout: { background: { color: tk.bg }, textColor: tk.dim },
     grid: { vertLines: { visible: false }, horzLines: { visible: false } }, timeScale: { visible: false }, rightPriceScale: { borderVisible: false } });
-  var line = c.addLineSeries({ color: "#0071e3", lineWidth: 2, priceLineVisible: false });
+  var line = c.addSeries(LightweightCharts.LineSeries, { color: tk.accent, lineWidth: 2, priceLineVisible: false });
   var pts = LAST.result.curve.map(function (p) { return { time: barEpoch(LAST.result.bars[p.i][0]) , value: p.eq }; });
   var seen = {};
   pts = pts.filter(function (p) { if (seen[p.time]) return false; seen[p.time] = 1; return true; });
@@ -1353,22 +1523,38 @@ var CHART = null, SERIES = null, MA1 = null, MA2 = null, VOL = null, MARKERS_API
 
 function barEpoch(h) { return Math.floor((START_MS + h * 3600000) / 1000); }
 
+/** 把 CSS token 讀出來給 lightweight-charts 用（它不吃 CSS 變數） */
+function cssVar(name, fallback) {
+  try {
+    var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  } catch (e) { return fallback; }
+}
+function chartTheme() {
+  return {
+    bg: cssVar("--surface", "#171b21"), dim: cssVar("--dim", "#9aa0a6"),
+    line: cssVar("--line", "#2b323b"), grid: cssVar("--line", "#2b323b"),
+    accent: cssVar("--accent", "#4b9dff"), good: cssVar("--good", "#3fb950"), bad: cssVar("--bad", "#f85149")
+  };
+}
+
 function initChart() {
   if (!win.LightweightCharts) return;
+  var tk = chartTheme();
   var host = el("chart");
   host.innerHTML = "";
   CHART = LightweightCharts.createChart(host, {
-    layout: { background: { color: "#fff" }, textColor: "#6e6e73" },
-    grid: { vertLines: { color: "#f2f2f7" }, horzLines: { color: "#f2f2f7" } },
-    timeScale: { timeVisible: true, secondsVisible: false, borderColor: "#d2d2d7" },
-    rightPriceScale: { borderColor: "#d2d2d7" },
+    layout: { background: { color: tk.bg }, textColor: tk.dim },
+    grid: { vertLines: { color: tk.grid }, horzLines: { color: tk.grid } },
+    timeScale: { timeVisible: true, secondsVisible: false, borderColor: tk.line },
+    rightPriceScale: { borderColor: tk.line },
     crosshair: { mode: 0 }
   });
-  SERIES = CHART.addCandlestickSeries({ upColor: "#1e7d32", downColor: "#c0392b", borderVisible: false, wickUpColor: "#1e7d32", wickDownColor: "#c0392b" });
-  VOL = CHART.addHistogramSeries({ priceScaleId: "", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
+  SERIES = CHART.addSeries(LightweightCharts.CandlestickSeries, { upColor: tk.good, downColor: tk.bad, borderVisible: false, wickUpColor: tk.good, wickDownColor: tk.bad });
+  VOL = CHART.addSeries(LightweightCharts.HistogramSeries, { priceScaleId: "", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
   VOL.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-  MA1 = CHART.addLineSeries({ color: "#0071e3", lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
-  MA2 = CHART.addLineSeries({ color: "#b26a00", lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
+  MA1 = CHART.addSeries(LightweightCharts.LineSeries, { color: tk.accent, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
+  MA2 = CHART.addSeries(LightweightCharts.LineSeries, { color: "#b26a00", lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
   MARKERS_API = LightweightCharts.createSeriesMarkers(SERIES, []);
 }
 
@@ -1377,7 +1563,6 @@ function renderChart() {
   if (!CHART) return;
   if (!LAST || !BARS_OK) {
     SERIES.setData([]); VOL.setData([]); MA1.setData([]); MA2.setData([]);
-    LightweightCharts.createSeriesMarkers(SERIES, MARKERS_API ? undefined : []);
     if (MARKERS_API) MARKERS_API.setMarkers([]);
     el("pInfo").textContent = BARS_OK ? "—" : "資料暫時無法取得";
     return;
@@ -1398,8 +1583,9 @@ function renderChart() {
 
   var marks = [];
   r.trades.forEach(function (t) {
-    if (t.inIdx < n) marks.push({ time: barEpoch(bars[t.inIdx][0]), position: "belowBar", color: "#0071e3", shape: "arrowUp", text: "進 " + t.inTime.slice(5) });
-    if (t.outIdx < n) marks.push({ time: barEpoch(bars[t.outIdx][0]), position: "aboveBar", color: t.pnl >= 0 ? "#1e7d32" : "#c0392b", shape: "arrowDown", text: t.why });
+    var mt = chartTheme();
+    if (t.inIdx < n) marks.push({ time: barEpoch(bars[t.inIdx][0]), position: "belowBar", color: mt.accent, shape: "arrowUp", text: "進 " + hhmm(t.inTime).slice(5) });
+    if (t.outIdx < n) marks.push({ time: barEpoch(bars[t.outIdx][0]), position: "aboveBar", color: t.pnl >= 0 ? mt.good : mt.bad, shape: "arrowDown", text: t.why });
   });
   if (MARKERS_API) MARKERS_API.setMarkers(marks);
   var last = shown[shown.length - 1];
@@ -1509,22 +1695,441 @@ function cfgSnapshot() {
 function cfgSig(o) { return CFG_KEYS.concat(SEL_KEYS).map(function (k) { return k + "=" + o[k]; }).join(";"); }
 function qsa(root, sel) { return Array.prototype.slice.call(root.querySelectorAll(sel)); }
 
+// ======== M5：分頁、主題、四種狀態、總覽、機器人、最佳化 ========
+var TAB_IDS = ["p-overview", "p-strategy", "p-backtest", "p-bot", "p-compare"];
+
+function stateBox(kind, title, body) {
+  return '<div class="state ' + kind + '">' + (title ? '<b>' + title + '</b>' : '') +
+    (body ? body : '') + '</div>';
+}
+function loadingBox(msg) {
+  return '<div class="state loading" role="status" aria-live="polite"><b>' + (msg || "載入中…") + '</b>' +
+    '<div class="skel"></div><div class="skel"></div><div class="skel"></div></div>';
+}
+function emptyBox(msg) { return stateBox("empty", "沒有資料", '<p style="margin:6px 0 0">' + msg + '</p>'); }
+function errorBox(msg, raw) {
+  return '<div class="state error" role="alert"><b>' + msg + '</b>' +
+    (raw ? '<pre>' + String(raw).replace(/[<>&]/g, function (c) { return { "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]; }) + '</pre>' : '') + '</div>';
+}
+
+function applyTheme(t) {
+  document.documentElement.setAttribute("data-theme", t);
+  try { localStorage.setItem("alice.theme", t); } catch (e) {}
+  var b = el("themeToggle");
+  if (b) { b.textContent = t === "dark" ? "淺色" : "深色"; b.setAttribute("aria-pressed", t === "light" ? "true" : "false"); }
+  if (CHART) { try { CHART.remove(); } catch (e) {} CHART = null; SERIES = null; MARKERS_API = null; initChart(); renderChart(); }
+  if (typeof drawCurve === "function") drawCurve();
+}
+
+// ---- 策略種類切換 ----
+var STRAT_KIND = "A";
+function setStratKind(k) {
+  STRAT_KIND = k;
+  qsa(document, "#stratKind button").forEach(function (b) {
+    var on = b.getAttribute("data-kind") === k;
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  var form = el("form");
+  var segBox = el("segTools");
+  if (k === "A" || k === "B") { if (form) form.hidden = false; if (segBox) segBox.hidden = true; }
+  else { if (form) form.hidden = true; if (segBox) segBox.hidden = false; renderStrategyTools(k); }
+}
+
+function mkBarsFromDemo() { return BARS; }
+
+function renderStrategyTools(k) {
+  var box = el("segTools");
+  if (!box) return;
+  if (k === "grid") {
+    var g = E_gridBacktest || null;
+    var levels = BARS.map(function (b) { return b[4]; });
+    var lo = Math.min.apply(null, levels), hi = Math.max.apply(null, levels);
+    box.innerHTML = '<h2>網格設定</h2><div class="grid">' +
+      '<div><label for="gUpper">上界 <span class="unit">（USDT）</span></label><input id="gUpper" type="number" value="' + Math.round(hi) + '"></div>' +
+      '<div><label for="gLower">下界 <span class="unit">（USDT）</span></label><input id="gLower" type="number" value="' + Math.round(lo) + '"></div>' +
+      '<div><label for="gGrids">格數 <span class="unit">（2 以上）</span></label><input id="gGrids" type="number" value="10"></div>' +
+      '<div><label for="gPer">每格投入 <span class="unit">（USDT）</span></label><input id="gPer" type="number" value="100"></div>' +
+      '</div><div class="row"><button type="button" class="primary" id="gRun">跑網格</button></div><div id="gOut"></div>';
+    el("gRun").addEventListener("click", function () {
+      var cfg = { upper: Number(el("gUpper").value), lower: Number(el("gLower").value),
+        grids: Number(el("gGrids").value), perGrid: Number(el("gPer").value), geo: false };
+      if (!(cfg.upper > cfg.lower) || !(cfg.grids >= 2) || !(cfg.perGrid > 0)) { el("gOut").innerHTML = errorBox("參數不合法", "上界要大於下界、格數 ≥ 2、每格投入 > 0"); return; }
+      el("gOut").innerHTML = loadingBox("跑網格中…");
+      var r = gridBacktest(BARS, cfg);
+      el("gOut").innerHTML = '<div class="tiles">' +
+        '<div class="tile"><div class="k">已實現</div><div class="v ' + (r.realized >= 0 ? "pos" : "neg") + '">' + signed(r.realized, 2) + '</div><div class="formula">賣出成交價 − 買入成交價，逐筆加總</div></div>' +
+        '<div class="tile"><div class="k">未實現</div><div class="v ' + (r.unrealized >= 0 ? "pos" : "neg") + '">' + signed(r.unrealized, 2) + '</div><div class="formula">手上未平倉 ×(現價 − 買價)</div></div>' +
+        '<div class="tile"><div class="k">成交次數</div><div class="v">' + r.fills + '</div><div class="formula">買＋賣的總筆數</div></div>' +
+        '<div class="tile"><div class="k">格線</div><div class="v" style="font-size:15px">' + r.levels.map(function (x) { return fmt(x, 0); }).join(" / ") + '</div></div>' +
+        '</div>';
+    });
+    return;
+  }
+  if (k === "dca") {
+    box.innerHTML = '<h2>定投設定</h2><div class="grid">' +
+      '<div><label for="dFirst">首單金額 <span class="unit">（USDT）</span></label><input id="dFirst" type="number" value="1000"></div>' +
+      '<div><label for="dAdd">加碼金額 <span class="unit">（USDT）</span></label><input id="dAdd" type="number" value="500"></div>' +
+      '<div><label for="dDrop">加碼觸發跌幅 <span class="unit">（%）</span></label><input id="dDrop" type="number" value="3"></div>' +
+      '<div><label for="dMult">加碼倍數 <span class="unit">（1＝固定金額）</span></label><input id="dMult" type="number" value="1.5"></div>' +
+      '<div><label for="dMax">最多加碼次數</label><input id="dMax" type="number" value="3"></div>' +
+      '<div><label for="dTp">整體停利 <span class="unit">（%）</span></label><input id="dTp" type="number" value="4"></div>' +
+      '</div><div class="row"><button type="button" class="primary" id="dRun">跑定投</button></div><div id="dOut"></div>';
+    el("dRun").addEventListener("click", function () {
+      var cfg = { first: Number(el("dFirst").value), addAmount: Number(el("dAdd").value),
+        dropPct: Number(el("dDrop").value), mult: Number(el("dMult").value),
+        maxAdds: Number(el("dMax").value), takeProfitPct: Number(el("dTp").value) };
+      if (!(cfg.first > 0) || !(cfg.dropPct > 0) || !(cfg.takeProfitPct > 0)) { el("dOut").innerHTML = errorBox("參數不合法", "首單金額、觸發跌幅、停利都要大於 0"); return; }
+      el("dOut").innerHTML = loadingBox("跑定投中…");
+      var r = dcaBacktest(BARS, cfg);
+      var done = r.cycles.reduce(function (a, c) { return a + c.pnl; }, 0);
+      el("dOut").innerHTML = '<div class="tiles">' +
+        '<div class="tile"><div class="k">完成輪數</div><div class="v">' + r.cycles.length + '</div></div>' +
+        '<div class="tile"><div class="k">已實現損益</div><div class="v ' + (done >= 0 ? "pos" : "neg") + '">' + signed(done, 2) + '</div></div>' +
+        '<div class="tile"><div class="k">最大占用資金</div><div class="v">' + (r.open ? fmt(r.open.maxCost, 0) : (r.cycles.reduce(function (a, c) { return Math.max(a, c.maxCost); }, 0) || 0)) + '</div></div>' +
+        '<div class="tile"><div class="k">平均成本</div><div class="v">' + (r.open && r.open.avg ? fmt(r.open.avg, 1) : "—") + '</div><div class="formula">持有部位總成本 ÷ 數量</div></div>' +
+        '</div>';
+    });
+  }
+}
+
+// ---- 總覽 ----
+var BOT_API = "http://127.0.0.1:8771";
+var BOT = { state: "loading", data: null, err: null, journal: [] };
+
+function botBadge() {
+  if (BOT.state === "loading") return '<span class="badge">載入中</span>';
+  if (BOT.state === "offline") return '<span class="badge off">未連線</span>';
+  if (BOT.state === "error") return '<span class="badge dead">讀取失敗</span>';
+  var d = BOT.data || {};
+  if (d.botAlive === false) return '<span class="badge dead">機器人無回應</span>';
+  if (d.paused) return '<span class="badge pause">已暫停</span>';
+  return '<span class="badge run">運作中</span>';
+}
+
+function renderOverview() {
+  var box = el("ovBot");
+  if (!box) return;
+  if (BOT.state === "loading") { box.innerHTML = loadingBox("讀取機器人狀態…"); }
+  else if (BOT.state === "offline") {
+    box.innerHTML = '<div class="state offline"><b>機器人未連線</b><p style="margin:6px 0 0">本機沒有啟動狀態 API。開終端機執行 <code>node bot/status-server.mjs</code> 與 <code>node bot/runner.mjs</code> 後按右上角重新整理。回測與圖表不需要機器人。</p></div>';
+  } else if (BOT.state === "error") {
+    box.innerHTML = errorBox("狀態 API 回傳錯誤", BOT.err);
+  } else {
+    var d = BOT.data;
+    var age = d.heartbeatAgeMs === null || d.heartbeatAgeMs === undefined ? "—" : Math.round(d.heartbeatAgeMs / 1000) + " 秒前";
+    box.innerHTML = '<div class="tiles">' +
+      '<div class="tile"><div class="k">狀態</div><div class="v">' + botBadge() + '</div><div class="formula">最後心跳 ' + age + '；超過 180 秒標無回應</div></div>' +
+      '<div class="tile"><div class="k">權益</div><div class="v">' + (d.equity ? fmt(d.equity.balance, 2) : "—") + '</div><div class="formula">紙上平衡 USDT</div></div>' +
+      '<div class="tile"><div class="k">峰值</div><div class="v">' + (d.equity ? fmt(d.equity.peak, 2) : "—") + '</div></div>' +
+      '<div class="tile"><div class="k">交易次數</div><div class="v">' + (d.equity ? d.equity.trades : 0) + '</div></div>' +
+      '</div>';
+  }
+
+  // 今日損益：從 journal 撈今天出場
+  var tiles = el("ovTiles");
+  var t0 = new Date(); t0.setHours(0, 0, 0, 0);
+  var today = (BOT.journal || []).filter(function (x) { return x.type === "exit" && Date.parse(x.t) >= t0.getTime(); });
+  var todayPnl = today.reduce(function (a, x) { return a + (x.pnl || 0); }, 0);
+  var cls = todayPnl > 0 ? "pos" : todayPnl < 0 ? "neg" : "";
+  var h = '<div class="tile"><div class="k">今日損益</div><div class="v ' + cls + '">' + signed(todayPnl, 2) + '</div><div class="formula">今天所有出場的損益加總（' + today.length + ' 筆）</div></div>';
+  if (LAST) {
+    h += '<div class="tile"><div class="k">回測總報酬</div><div class="v ' + (LAST.result.totalRet >= 0 ? "pos" : "neg") + '">' + signed(LAST.result.totalRet, 2) + '%</div><div class="formula">示範資料、目前參數</div></div>';
+    h += '<div class="tile"><div class="k">回測勝率</div><div class="v">' + (LAST.result.winRate === null ? "—" : num(LAST.result.winRate, 1) + "%") + '</div></div>';
+    h += '<div class="tile"><div class="k">回測交易</div><div class="v">' + LAST.result.n + '</div></div>';
+  }
+  tiles.innerHTML = h;
+
+  var pos = el("ovPosition");
+  if (BOT.state === "ok" && BOT.data.position) {
+    var p = BOT.data.position;
+    pos.innerHTML = '<div class="tile"><div class="k">' + (p.kind || "A") + ' 持倉</div><div class="v">' + fmt(p.entry || p.avg || 0, 1) + '</div><div class="formula">進場價；' +
+      (p.adds !== undefined ? "已加碼 " + p.adds + ' 次' : "停損 " + fmt(p.sl || 0, 1) + '／停利 ' + fmt(p.tp || 0, 1)) + '</div></div>';
+  } else if (BOT.state === "ok") {
+    pos.innerHTML = emptyBox("機器人目前沒有持倉。");
+  } else {
+    pos.innerHTML = BOT.state === "loading" ? loadingBox() : '<div class="state offline">未連線，無法得知持倉。<p style="margin:6px 0 0">回測的「目前持倉」請看回測報告頁。</p></div>';
+  }
+
+  var flags = el("ovFlags");
+  if (LAST && LAST.result.bars && LAST.result.bars.length >= 180) {
+    var r4 = evaluateRegime(to4h(LAST.result.bars));
+    if (!r4.ok) flags.innerHTML = emptyBox("4h K 線不足 180 根，無法判讀盤況（現在 " + r4.n + " 根）。");
+    else flags.innerHTML = '<div class="hero-right">' + r4.flags.map(function (f) {
+      return '<div class="flag ' + (f.on ? "on" : "off") + '"><span class="t">規則 ' + f.n + '：' + f.label + '</span>' +
+        '<span class="s">' + (f.on ? "成立" : "未成立") + '</span><span class="formula">' + f.detail + '</span></div>';
+    }).join("") + '</div>';
+  } else {
+    flags.innerHTML = emptyBox("還沒跑回測，或是資料不足 180 根 4h K 線。");
+  }
+
+  var rec = el("ovRecent");
+  var exits = (BOT.journal || []).filter(function (x) { return x.type === "exit"; }).slice(-5).reverse();
+  if (!exits.length) rec.innerHTML = emptyBox(BOT.state === "ok" ? "機器人還沒有出場紀錄。" : "未連線，看不到成交紀錄。");
+  else rec.innerHTML = '<table><thead><tr><th>時間</th><th>損益</th><th>原因</th></tr></thead><tbody>' +
+    exits.map(function (x) {
+      return '<tr><td>' + String(x.t).slice(0, 16).replace("T", " ") + '</td><td class="' + (x.pnl > 0 ? "pos" : x.pnl < 0 ? "neg" : "") + '">' + signed(x.pnl || 0, 2) + '</td><td>' + (x.why || "") + '</td></tr>';
+    }).join("") + '</tbody></table>';
+}
+
+function loadBot() {
+  BOT.state = "loading"; renderOverview();
+  if (typeof fetch !== "function") { BOT.state = "offline"; renderOverview(); return; }
+  var ctl = new AbortController();
+  var timer = setTimeout(function () { ctl.abort(); }, 3000);
+  fetch(BOT_API + "/api/state", { signal: ctl.signal })
+    .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(function (d) { BOT.state = "ok"; BOT.data = d; return fetch(BOT_API + "/api/journal?limit=100", { signal: ctl.signal }); })
+    .then(function (r) { return r.ok ? r.json() : { items: [] }; })
+    .then(function (j) { BOT.journal = j.items || []; clearTimeout(timer); renderOverview(); renderBot(); })
+    .catch(function (e) {
+      clearTimeout(timer);
+      BOT.state = (e && e.name === "AbortError") ? "offline" : "offline";
+      BOT.err = String(e && e.message || e);
+      renderOverview(); renderBot();
+    });
+}
+
+// ---- 機器人頁 ----
+function renderBot() {
+  var st = el("botState");
+  var j0 = el("botJournal");
+  if (!st || !j0) return;
+  if (BOT.state === "loading") st.innerHTML = loadingBox("讀取機器人狀態…");
+  else if (BOT.state === "offline") st.innerHTML = '<div class="state offline"><b>機器人未連線</b><p style="margin:6px 0 0">本機 127.0.0.1:8771 沒有回應。啟動：<code>node bot/status-server.mjs</code>、<code>node bot/runner.mjs</code>。' +
+    (BOT.err ? '</p><p class="formula">原始訊息：' + BOT.err + '</p>' : '</p>') + '</div>';
+  else st.innerHTML = '<div class="tiles">' +
+    '<div class="tile"><div class="k">狀態</div><div class="v">' + botBadge() + '</div></div>' +
+    '<div class="tile"><div class="k">心跳</div><div class="v" style="font-size:16px">' + (BOT.data.lastHeartbeat ? String(BOT.data.lastHeartbeat).slice(11, 19) : "—") + '</div><div class="formula">UTC 時間；超過 180 秒視為無回應</div></div>' +
+    '<div class="tile"><div class="k">權益</div><div class="v">' + (BOT.data.equity ? fmt(BOT.data.equity.balance, 2) : "—") + '</div></div>' +
+    '<div class="tile"><div class="k">勝負</div><div class="v">' + (BOT.data.equity ? (BOT.data.equity.wins || 0) + " / " + (BOT.data.equity.trades || 0) : "—") + '</div></div>' +
+    '</div>';
+
+  el("botConfig").innerHTML = '<pre class="formula" style="white-space:pre-wrap;color:var(--dim)">' +
+    (BOT.state === "ok" ? '參數由 bot/config.json 決定，網頁只讀。可用 Telegram /show_config 查，或按「策略」頁的參數複製 JSON。' : '未連線。') + '</pre>';
+
+  var j = el("botJournal");
+  var items = (BOT.journal || []).slice(-60).reverse();
+  if (!items.length) { j.innerHTML = emptyBox(BOT.state === "ok" ? "還沒有任何紀錄。" : "未連線，讀不到 journal.ndjson。"); return; }
+  j.innerHTML = '<div class="cmp log"><table><thead><tr><th>時間</th><th>類型</th><th>內容</th></tr></thead><tbody>' +
+    items.map(function (x) {
+      var what = x.cmd || x.why || (x.price ? "價格 " + x.price : "") || "";
+      if (x.pnl !== undefined) what += "　損益 " + signed(x.pnl, 2);
+      return '<tr><td>' + String(x.t || "").slice(0, 16).replace("T", " ") + '</td><td>' + (x.type || "") + '</td><td style="text-align:left">' + what + '</td></tr>';
+    }).join("") + '</tbody></table></div>';
+}
+
+// ---- 回測子分頁 ----
+function showBacktest(which) {
+  ["chart", "report", "trades"].forEach(function (k) {
+    var box = el("bt-" + k);
+    if (box) box.style.display = k === which ? "" : "none";
+    var b = document.querySelector('[data-bt="' + k + '"]');
+    if (b) b.setAttribute("aria-selected", k === which ? "true" : "false");
+  });
+  if (which === "chart") renderChart();
+  if (which === "report") { renderPeriod(); renderLookahead(); drawMetrics(); }
+  if (which === "trades") renderTrades();
+}
+
+// ---- M1：指標卡片 ----
+function drawMetrics() {
+  var box = el("metricBox");
+  if (!box) return;
+  if (!LAST) { box.innerHTML = emptyBox("先跑一次回測。"); return; }
+  var m = LAST.metrics;
+  if (!m) { box.innerHTML = emptyBox("這次回測沒有附指標。"); return; }
+  function n(v, d) { return v === null || v === undefined || !isFinite(v) ? "—" : Number(v).toFixed(d); }
+  function pc(v, d) { return v === null || v === undefined || !isFinite(v) ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(d) + "%"; }
+  function cls(v) { return v === null || v === undefined ? "" : v > 0 ? "pos" : v < 0 ? "neg" : ""; }
+  var rows = [
+    ["夏普（年化）", n(m.sharpe, 2), "每根 K 線報酬的平均 ÷ 標準差 × √(每年根數)；無風險利率 0", ""],
+    ["索提諾", n(m.sortino, 2), "平均報酬 ÷ 下行標準差 × √(每年根數)；只算負報酬的波動", ""],
+    ["卡瑪", n(m.calmar, 2), "年化報酬 ÷ 最大回撤 %", ""],
+    ["年化報酬", pc(m.annualPct, 2), "(1 + 總報酬)^(1/年數) − 1；年數＝K 線根數 ÷ 每年根數", cls(m.annualPct)],
+    ["期望值", n(m.expectancy, 4), "總損益 ÷ 筆數", cls(m.expectancy)],
+    ["平均賺", n(m.avgWin, 4), "獲利筆數的損益平均", cls(m.avgWin)],
+    ["平均賠", n(m.avgLoss, 4), "虧損筆數的虧損平均（取正數）", ""],
+    ["賺賠比", n(m.winLossRatio, 2), "平均賺 ÷ 平均賠", ""],
+    ["最長連贏", String(m.maxWinStreak), "連續獲利最多幾筆", ""],
+    ["最長連虧", String(m.maxLossStreak), "連續虧損最多幾筆", ""],
+    ["持倉時間占比", n(m.timeInMarket, 1) + "%", "持倉根數合計 ÷ 總根數", ""],
+    ["買進持有", pc(m.buyHoldPct, 2), "第一根收盤買、最後一根收盤賣", cls(m.buyHoldPct)],
+    ["策略 − 買進持有", pc(m.excessPct, 2), "策略總報酬 − 買進持有報酬", cls(m.excessPct)],
+    ["最大回撤 %", n(m.mddPct, 4) + "%", "(峰值權益 − 目前權益) ÷ 峰值權益", "neg"]
+  ];
+  box.innerHTML = '<h2>專業指標</h2><div class="cmp"><table><thead><tr><th>指標</th><th>值</th><th style="text-align:left">算法</th></tr></thead><tbody>' +
+    rows.map(function (r) { return '<tr><td>' + r[0] + '</td><td class="' + r[3] + '">' + r[1] + '</td><td class="formula" style="text-align:left">' + r[2] + '</td></tr>'; }).join("") +
+    '</tbody></table></div>';
+  drawDdCurve();
+}
+
+function drawDdCurve() {
+  var host = el("ddCurve");
+  if (!host) {
+    var mbox = el("metricBox");
+    if (!mbox) return;
+    mbox.insertAdjacentHTML("beforeend", '<div class="muted" style="margin-top:14px">回撤曲線（0 以下；和資產曲線共用時間軸）</div><div id="ddCurve" class="curve"></div>');
+    host = el("ddCurve");
+  }
+  if (!host || !LAST || !LAST.metrics) return;
+  host.innerHTML = "";
+  if (!win.LightweightCharts) return;
+  var tk = chartTheme();
+  var c = LightweightCharts.createChart(host, { height: 80, layout: { background: { color: tk.bg }, textColor: tk.dim },
+    grid: { vertLines: { visible: false }, horzLines: { color: tk.grid } }, timeScale: { visible: false }, rightPriceScale: { borderVisible: false } });
+  var s2 = c.addSeries(LightweightCharts.AreaSeries || LightweightCharts.LineSeries, { color: tk.bad, lineWidth: 1, priceLineVisible: false });
+  var seen = {};
+  var pts = LAST.metrics.ddCurve.map(function (p) {
+    return { time: barEpoch(LAST.result.bars[p.i][0]), value: p.dd };
+  }).filter(function (p) { if (seen[p.time]) return false; seen[p.time] = 1; return true; });
+  s2.setData(pts);
+  c.timeScale().fitContent();
+}
+
+// ---- M2：最佳化 UI ----
+var OPT_MAX = 400;
+var OPT = { running: false, timer: null, done: 0, total: 0, result: null };
+
+function optCombos() {
+  var a = { from: Number(el("optAFrom").value), to: Number(el("optATo").value), step: Number(el("optAStep").value) };
+  var b = { from: Number(el("optBFrom").value), to: Number(el("optBTo").value), step: Number(el("optBStep").value) };
+  return { a: a, b: b, g: gridCombos(a, b) };
+}
+
+function renderOptHeat(res) {
+  var box = el("optResult");
+  if (!res || !res.ok) { box.innerHTML = errorBox("最佳化沒有執行", res && res.error); return; }
+  var h = '<div class="warnbox" style="color:var(--fg);border-color:var(--accent)">' +
+    '樣本內 = 前 ' + 70 + '% K 線（' + res.cut + ' 根），樣本外 = 後面的部分。' +
+    '最佳格：' + res.keyA + '=' + res.best.a + '、' + res.keyB + '=' + res.best.b +
+    '，樣本內 ' + num(res.best.inRet, 2) + '%、樣本外 ' + num(res.best.outRet, 2) + '%。</div>';
+  if (res.overfit) h += '<div class="warnbox">可能過度擬合：樣本外報酬不到樣本內的一半。把這組參數當作參考，不要直接上線。</div>';
+  var min = Infinity, max = -Infinity;
+  res.cells.forEach(function (c) { if (!c.skip && isFinite(c.inScore)) { min = Math.min(min, c.inScore); max = Math.max(max, c.inScore); } });
+  h += '<div class="cmp"><table><thead><tr><th>' + res.keyA + ' ＼ ' + res.keyB + '</th>' +
+    res.b.map(function (b) { return '<th>' + b + '</th>'; }).join("") + '</tr></thead><tbody>';
+  res.a.forEach(function (a, i) {
+    h += '<tr><td>' + a + '</td>';
+    res.b.forEach(function (b, j) {
+      var c = res.cells.find(function (x) { return x.i === i && x.j === j; });
+      if (!c || c.skip) { h += '<td class="muted">不合法</td>'; return; }
+      var t = max > min ? (c.inScore - min) / (max - min) : 0.5;
+      var col = "color-mix(in srgb, var(--accent) " + Math.round(15 + t * 70) + "%, var(--surface))";
+      var best = res.best && c.i === res.best.i && c.j === res.best.j;
+      h += '<td style="background:' + col + ';cursor:pointer" data-oa="' + a + '" data-ob="' + b + '" title="樣本內 ' + num(c.inRet, 2) + '%／樣本外 ' + num(c.outRet, 2) + '%">' +
+        (best ? "★ " : "") + num(c.inRet, 1) + '</td>';
+    });
+    h += '</tr>';
+  });
+  h += '</tbody></table></div><p class="formula">格子數字＝樣本內總報酬（%）。點一格會把這兩個參數帶回「策略」頁的手動設定。</p>';
+  box.innerHTML = h;
+  qsa(box, "td[data-oa]").forEach(function (td) {
+    td.addEventListener("click", function () {
+      var keyA = res.keyA, keyB = res.keyB;
+      if (el(keyA)) el(keyA).value = td.getAttribute("data-oa");
+      if (el(keyB)) el(keyB).value = td.getAttribute("data-ob");
+      setStratKind("A");
+      showTab("p-strategy");
+      setStale(true);
+    });
+  });
+}
+
+function optStart() {
+  var c = optCombos();
+  if (c.g.count > OPT_MAX) {
+    el("optResult").innerHTML = errorBox("組合太多", "參數組合數 " + c.g.count + " 超過上限 " + OPT_MAX + "，請把範圍縮小或步長加大");
+    return;
+  }
+  var cfg = cfgSnapshot();
+  if (!cfg) { el("optResult").innerHTML = errorBox("目前手動參數不合法", "先到「策略」頁修正再最佳化"); return; }
+  var keyA = el("optKeyA").value, keyB = el("optKeyB").value, obj = el("optObj").value;
+  OPT.running = true; OPT.done = 0; OPT.total = c.g.count;
+  el("optRun").setAttribute("aria-busy", "true");
+  el("optCancel").hidden = false;
+  el("optProgress").textContent = "進度 0 / " + OPT.total + "（0%）";
+  el("optResult").innerHTML = loadingBox("掃描中，共 " + OPT.total + " 組");
+
+  var aVals = c.g.a, bVals = c.g.b, ai = 0, bi = 0;
+  var cells = [], best = null;
+  var cut = Math.floor(BARS.length * 0.7);
+  var outBars = BARS.slice(cut - (cfg.slow || 60));
+
+  function step() {
+    if (!OPT.running) return;
+    var budget = 8;
+    while (budget-- > 0 && ai < aVals.length) {
+      var cv = {};
+      for (var k in cfg) if (Object.prototype.hasOwnProperty.call(cfg, k)) cv[k] = cfg[k];
+      cv[keyA] = aVals[ai]; cv[keyB] = bVals[bi];
+      var vv = validateConfig(cv);
+      if (!vv.ok) {
+        cells.push({ i: ai, j: bi, a: aVals[ai], b: bVals[bi], skip: true });
+      } else {
+        var rIn = backtestOn(BARS.slice(0, cut), vv.cfg, demoClock);
+        var mIn = metricsOn(rIn, { cfg: vv.cfg });
+        var rOut = backtestOn(outBars, vv.cfg, demoClock);
+        var mOut = metricsOn(rOut, { cfg: vv.cfg });
+        var cell = { i: ai, j: bi, a: aVals[ai], b: bVals[bi],
+          inScore: objectiveScore(obj, mIn, rIn), outScore: objectiveScore(obj, mOut, rOut),
+          inRet: mIn.totalRetPct, outRet: mOut.totalRetPct };
+        cells.push(cell);
+        if (!best || cell.inScore > best.inScore) best = cell;
+      }
+      OPT.done++;
+      bi++;
+      if (bi >= bVals.length) { bi = 0; ai++; }
+    }
+    el("optProgress").textContent = "進度 " + OPT.done + " / " + OPT.total + "（" + Math.round(OPT.done / OPT.total * 100) + "%）";
+    if (ai < aVals.length) { OPT.timer = setTimeout(step, 0); return; }
+    OPT.running = false;
+    el("optRun").removeAttribute("aria-busy");
+    el("optCancel").hidden = true;
+    el("optProgress").textContent = "完成 " + OPT.total + " 組";
+    var overfit = !!best && best.inRet > 0 && best.outRet < best.inRet * 0.5;
+    OPT.result = { ok: true, cells: cells, a: aVals, b: bVals, keyA: keyA, keyB: keyB, best: best, overfit: overfit, cut: cut };
+    renderOptHeat(OPT.result);
+  }
+  setTimeout(step, 0);
+}
+
+function optCancel() {
+  OPT.running = false;
+  if (OPT.timer) clearTimeout(OPT.timer);
+  OPT.timer = null;
+  el("optRun").removeAttribute("aria-busy");
+  el("optCancel").hidden = true;
+  el("optProgress").textContent = "已取消（已完成 " + OPT.done + " / " + OPT.total + "）";
+  el("optResult").innerHTML = emptyBox("掃描已取消，沒有任何結果被保留。");
+}
+
 function showTab(id) {
   qsa(document, "#tabs button").forEach(function (b) {
-    b.setAttribute("aria-selected", b.getAttribute("data-tab") === id ? "true" : "false");
+    var on = b.getAttribute("data-tab") === id;
+    b.setAttribute("aria-selected", on ? "true" : "false");
+    b.setAttribute("tabindex", on ? "0" : "-1");
   });
   qsa(document, ".panel").forEach(function (p) { p.classList.toggle("on", p.id === id); });
-  if (id === "p-chart") renderChart();
-  if (id === "p-report") { renderPeriod(); renderLookahead(); }
-  if (id === "p-trades") renderTrades();
-  if (id === "p-compare") renderCompare();
+  if (id === "p-overview") renderOverview();
+  if (id === "p-backtest") {
+    var active = "chart";
+    qsa(document, "[data-bt]").forEach(function (b) { if (b.getAttribute("aria-selected") === "true") active = b.getAttribute("data-bt"); });
+    showBacktest(active);
+  }
+  if (id === "p-bot") renderBot();
+  if (id === "p-compare") {
+    renderCompare();
+    el("optIdle").style.display = "none";
+    el("optForm").hidden = false;
+    el("optActions").hidden = false;
+  }
 }
 
 function setStale(v) {
   STALE = v;
   var html = v ? '<div class="stale"><span>參數已變更，結果尚未更新</span><button type="button" id="rerun">重新回測</button></div>' : "";
-  el("staleBox").innerHTML = html;
-  el("staleReport").innerHTML = html;
+  if (el("staleBox")) el("staleBox").innerHTML = html;
+  if (el("staleReport")) el("staleReport").innerHTML = html;
   qsa(document, "#rerun").forEach(function (b) {
     b.addEventListener("click", function () { el("form").dispatchEvent(new Event("submit", { cancelable: true })); });
   });
@@ -1553,8 +2158,8 @@ function copyPreset(p) {
   setStale(true);
 }
 function switchSub(which) {
-  el("st-preset").setAttribute("aria-selected", which === "preset" ? "true" : "false");
-  el("st-manual").setAttribute("aria-selected", which === "manual" ? "true" : "false");
+  el("st-preset").setAttribute("aria-pressed", which === "preset" ? "true" : "false");
+  el("st-manual").setAttribute("aria-pressed", which === "manual" ? "true" : "false");
   el("presetBox").style.display = which === "preset" ? "" : "none";
   el("manualBox").style.display = which === "manual" ? "" : "none";
 }
@@ -1566,7 +2171,7 @@ function renderPeriod() {
   var mode = box.getAttribute("data-mode") || "day";
   var groups = {};
   LAST.result.trades.forEach(function (t) {
-    var k = t.outTime.slice(0, mode === "day" ? 10 : 7);
+    var k = hhmm(t.outTime).slice(0, mode === "day" ? 10 : 7);
     groups[k] = groups[k] || { pnl: 0, n: 0, w: 0 };
     groups[k].pnl += t.pnl; groups[k].n++; if (t.pnl > 0) groups[k].w++;
   });
@@ -2072,8 +2677,57 @@ el("saveDay").addEventListener("click", function () {
   renderPaper(cap);
 });
 
+// ---- M5 事件：主題、分頁鍵盤、策略種類、機器人刷新、回測子分頁、最佳化 ----
+el("themeToggle").addEventListener("click", function () {
+  var cur = document.documentElement.getAttribute("data-theme");
+  applyTheme(cur === "dark" ? "light" : "dark");
+});
+(function initTabs() {
+  var tabs = qsa(document, "#tabs button");
+  tabs.forEach(function (b, i) {
+    b.addEventListener("click", function () { showTab(b.getAttribute("data-tab")); });
+    b.addEventListener("keydown", function (e) {
+      var d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : e.key === "Home" ? -i : e.key === "End" ? tabs.length - 1 - i : 0;
+      if (!d) return;
+      e.preventDefault();
+      var n = (i + d + tabs.length) % tabs.length;
+      tabs[n].focus();
+      showTab(tabs[n].getAttribute("data-tab"));
+    });
+  });
+})();
+qsa(document, "#stratKind button").forEach(function (b) {
+  b.addEventListener("click", function () { setStratKind(b.getAttribute("data-kind")); });
+  b.addEventListener("keydown", function (e) {
+    var list = qsa(document, "#stratKind button");
+    var i = list.indexOf(b);
+    var d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    if (!d) return;
+    e.preventDefault();
+    var n = (i + d + list.length) % list.length;
+    list[n].focus(); setStratKind(list[n].getAttribute("data-kind"));
+  });
+});
+qsa(document, "[data-bt]").forEach(function (b) {
+  b.addEventListener("click", function () { showBacktest(b.getAttribute("data-bt")); });
+});
+el("btnBotRefresh").addEventListener("click", loadBot);
+el("optRun").addEventListener("click", optStart);
+el("optCancel").addEventListener("click", optCancel);
+
+// 分頁可深連結：#overview / #strategy / #backtest / #bot / #compare
+function hashTab() {
+  var h = (location.hash || "").replace("#", "");
+  var map = { overview: "p-overview", strategy: "p-strategy", backtest: "p-backtest", bot: "p-bot", compare: "p-compare" };
+  return map[h] || "p-overview";
+}
+
 // ---- 首次載入：打好預設值並直接跑一次 ----
 (function init() {
+  try {
+    var saved = localStorage.getItem("alice.theme");
+    applyTheme(saved === "light" ? "light" : "dark");
+  } catch (e) { applyTheme("dark"); }
   renderPresets();
   switchSub("manual");
   var v = validate();
@@ -2083,6 +2737,11 @@ el("saveDay").addEventListener("click", function () {
   } else {
     renderPaper(300);
   }
+  setStratKind("A");
+  showTab(hashTab());
+  if (el("optForm")) el("optForm").hidden = false;
+  if (el("optActions")) el("optActions").hidden = false;
+  loadBot();
 })();
 </script>
 </body>
