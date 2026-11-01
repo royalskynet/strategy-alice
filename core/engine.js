@@ -312,32 +312,34 @@ function evaluateRegime(bars4h, th) {
   // 48h 報酬＝收盤 ÷ 11 根前開盤 − 1（比例，不是百分比）
   // ponytail: 前綴比 13 根短時回 null；btc_watch 在 n<MIN_BARS(180) 時整筆不評分，兩者行為一致。
   var ret48 = n >= 12 && bars4h[n - 12] ? c / bars4h[n - 12][1] - 1 : null;
-  // 48h 最大漲幅＝12 根內最高 ÷ 最低 − 1
   var win48 = bars4h.slice(-12);
-  var maxx48 = Math.max.apply(null, win48.map(function (b) { return b[2]; })) /
+  // 48h 內最大量倍數（btc_watch：max(k.v / base for k in w12)）
+  var maxx48 = volbase !== null
+    ? Math.max.apply(null, win48.map(function (b) { return b[5] / volbase; }))
+    : null;
+  // 48h 價格區間（原本誤用 maxx48 這個名字，改叫 range48）
+  var range48 = Math.max.apply(null, win48.map(function (b) { return b[2]; })) /
     Math.min.apply(null, win48.map(function (b) { return b[3]; })) - 1;
   // 30 天位置＝(收盤 − 180 根最低) ÷ (180 根最高 − 180 根最低)
   var w30 = bars4h.slice(-180);
   var hi30 = Math.max.apply(null, w30.map(function (b) { return b[2]; }));
   var lo30 = Math.min.apply(null, w30.map(function (b) { return b[3]; }));
   var pos30 = hi30 > lo30 ? (c - lo30) / (hi30 - lo30) : null;
-  // 72h 區間寬＝18 根最高 ÷ 最低 − 1
+  // 72h 區間：18 根的最高、最低，以及區間寬 ÷ 現價（btc_watch 定義）
   var w72 = bars4h.slice(-18);
   var hi72 = Math.max.apply(null, w72.map(function (b) { return b[2]; }));
   var lo72 = Math.min.apply(null, w72.map(function (b) { return b[3]; }));
-  var width72 = hi72 > lo72 ? hi72 / lo72 - 1 : null;
+  var width72 = c > 0 ? (hi72 - lo72) / c : null;
 
-  // 距 72h 高點已幾根沒創新高
-  var barsSinceHi = 0;
-  for (var j = n - 1; j >= n - 18; j--) {
-    if (bars4h[j][2] >= hi72) break;
-    barsSinceHi++;
-  }
+  // 距 72h 高點已幾根沒創新高；同價取第一根（btc_watch 的 max(range) 行為）
+  var iHi = 0;
+  for (var j = 1; j < w72.length; j++) { if (w72[j][2] > w72[iHi][2]) iHi = j; }
+  var barsSinceHi = w72.length - 1 - iHi;
   var stalled = barsSinceHi >= T.flatBars;
 
   // 規則 1：48h 報酬 ≥ 6.50%，且 48h 內有一根量 ≥ 基準量 3.17 倍
   var r1 = ret48 !== null && ret48 * 100 >= T.burst &&
-    win48.some(function (b) { return b[5] >= volbase * T.volX; });
+    maxx48 !== null && maxx48 >= T.volX;
 
   // 規則 2：48h 內一根同時 量≥3.17倍、淨方向≤−0.193、收黑
   var bigBar = win48.some(function (b) {
@@ -364,7 +366,7 @@ function evaluateRegime(bars4h, th) {
       { n: 3, on: r3, label: "高位震盪", detail: "72h 區間 " + fmtNum(width72 * 100, 2) + "%" },
       { n: 4, on: r4, label: "上升趨勢，同點位低接", detail: "30 天位置 " + (pos30 === null ? "—" : fmtNum(pos30 * 100, 1) + "%") }
     ],
-    ret48: ret48, pos30: pos30, width72: width72, maxx48: maxx48,
+    ret48: ret48, pos30: pos30, width72: width72, maxx48: maxx48, range48: range48,
     volbase: volbase, barsSinceHi: barsSinceHi
   };
 }

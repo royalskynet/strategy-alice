@@ -75,7 +75,7 @@ issue.md
 實際：  npm view impeccable version → 4.8.0（別人註冊走的同名套件，不是 pbakaus/impeccable）
 ```
 
-照計劃打會裝到不相干的套件。
+~~照計劃打會裝到不相干的套件。~~ 已撤回：`npm view impeccable repository.url` 回 `git+https://github.com/pbakaus/impeccable.git`，就是 pbakaus 的套件，先前是我的誤判。
 
 社群回報的兩個坑（GitHub issues，2026-10）：
 
@@ -214,12 +214,9 @@ SyntaxError: Unexpected token '<'   at new Function
 
 B 段內嵌 lightweight-charts 後 `index.html` 有兩支 `<script>`，測試只取第一支。
 
-### 6. volbase 少取一格
+### 6. ~~volbase 少取一格~~（已撤回，這是誤判）
 
-```js
-vols.slice(-121, -1)   // 取到 119 個元素
-vols.slice(-120)       // 正確的 120 個
-```
+原先寫「`slice(-121,-1)` 只取 119 個」，是我數錯。JS 的 `slice(-121,-1)` 取到索引 n−121 到 n−2，共 **120 個**，和 btc_watch 的 `K[-121:-1]` 相同。821 筆 volbase 全部吻合就是證據。改成 `slice(-120)` 反而會包含當根，是錯的。
 
 ### 7. ret48 定義最初搞錯
 
@@ -253,10 +250,25 @@ IndexError: list index out of range
 
 ## 四、需要你決定的兩件事
 
-### 1. width72 / maxx48
+### ~~1. width72 / maxx48~~（已解，P0 修完）
 
-- 你能拿到 `btc_watch.py` → 我照它的定義補，`range_high` 就能 100% 對上
-- 拿不到 → 維持現狀，這 3 筆差異寫在這裡，不假裝對得起來
+`優化執行方案-業界成熟度.md` §7.1 提供了 btc_watch.py 第 83–109 行原文，定義確定：
+
+```
+maxx48  = 48h 內最大量倍數（v ÷ volbase），不是價格漲幅
+width72 = (18 根最高 − 18 根最低) ÷ 現價，不是 hi/lo − 1
+bars_since_hi = 同價取第一根
+```
+
+P0 已套用。測試實跑輸出：
+
+```
+旗標：821/821 一致
+欄位：821/821 一致（width72、ret48、pos30、volbase、maxx48）
+合成：5/5 一致（flat、spike、thrust、deadzone、short179）
+```
+
+`range_high` 從 42 筆變 45 筆，與標準答案相同。
 
 ### 2. Vercel 接法
 

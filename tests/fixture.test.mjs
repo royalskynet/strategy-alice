@@ -1,12 +1,13 @@
-/** 標準答案比對：fixtures/btc4h-regime-20261101.json（來源：M4 btc_watch.py parse()+evaluate()）
+/** 標準答案比對：fixtures/btc4h-regime-20261101.json
+ *  來源：M4 btc_watch.py parse()+evaluate()
  *
- * 已確認的公式（三筆完全一致）：
- *   volbase = 前 120 根（不含當根）的量中位數
- *   ret48   = 收盤 ÷ 12 根前收盤 − 1（比例，不是百分比）
- *   pos30   = (收盤 − 180 根最低) ÷ (180 根最高 − 180 根最低)
- *
- * 未解：width72、maxx48 的定義與 btc_watch 不同，這兩欄不比對。
- * ponytail: 有了 btc_watch.py 原始碼就補齊這兩欄，介面已預留。
+ * 公式（見 優化執行方案-業界成熟度.md §7.1）：
+ *   volbase     = 前 120 根（不含當根）的量中位數
+ *   ret48       = 收盤 ÷ 11 根前開盤 − 1
+ *   pos30       = (收盤 − 180 根最低) ÷ (180 根最高 − 180 根最低)
+ *   maxx48      = 48h 內最大量倍數（v ÷ volbase）
+ *   width72     = (18 根最高 − 18 根最低) ÷ 現價
+ *   bars_since_hi = 72h 高點到當根的根數，同價取第一根
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -17,10 +18,14 @@ import { loadEngine, ROOT_DIR } from "./helpers.mjs";
 const E = loadEngine();
 const FIX = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, "fixtures/btc4h-regime-20261101.json"), "utf8"));
 const BARS = E.toBars(FIX.klines_raw);
+const IDX = new Map(BARS.map((b, i) => [b[0], i]));
 
-function prefixFor(expected) {
-  const i = BARS.findIndex((b) => b[0] === expected.last_open_ms);
-  assert.ok(i >= 0, "找不到時戳 " + expected.last_open_ms);
+const FLAG_KEYS = ["spike", "stall_reverse", "range_high", "uptrend"];
+const TOL = 1e-6;
+
+function prefixFor(exp) {
+  const i = IDX.get(exp.last_open_ms);
+  assert.ok(i !== undefined, "找不到時戳 " + exp.last_open_ms);
   return BARS.slice(0, i + 1);
 }
 
@@ -31,47 +36,76 @@ test("fixture 載入：1000 根 K 線、821 筆標準答案、5 筆合成", () =
   assert.equal(FIX.synthetic.length, 5);
 });
 
-test("volbase 與 ret48 對全部 821 筆一致（誤差 < 1e-8）", () => {
-  let bad = [];
-  for (const exp of FIX.expected) {
-    const K = prefixFor(exp);
-    if (K.length < 180) continue;
-    const r = E.evaluateRegime(K);
-    if (Math.abs(r.volbase - exp.volbase) > 1e-8) bad.push({ ms: exp.last_open_ms, got: r.volbase, want: exp.volbase });
-    if (Math.abs(r.ret48 - exp.ret48) > 1e-8) bad.push({ ms: exp.last_open_ms, f: "ret48", got: r.ret48, want: exp.ret48 });
-  }
-  assert.equal(bad.length, 0, "不一致 " + bad.length + " 筆，前三筆：" + JSON.stringify(bad.slice(0, 3)));
-});
-
-test("pos30 對全部 821 筆一致（誤差 < 1e-8）", () => {
+test("四旗標逐筆相等（821/821）", () => {
   const bad = [];
   for (const exp of FIX.expected) {
-    const K = prefixFor(exp);
-    const r = E.evaluateRegime(K);
-    if (Math.abs(r.pos30 - exp.pos30) > 1e-8) bad.push({ ms: exp.last_open_ms, got: r.pos30, want: exp.pos30 });
+    const r = E.evaluateRegime(prefixFor(exp));
+    if (!r.ok) { bad.push({ ms: exp.last_open_ms, why: r.reason }); continue; }
+    FLAG_KEYS.forEach((k, j) => {
+      if (r.flags[j].on !== exp.flags[k]) {
+        bad.push({ ms: exp.last_open_ms, flag: k, got: r.flags[j].on, want: exp.flags[k] });
+      }
+    });
   }
-  assert.equal(bad.length, 0, "不一致 " + bad.length + " 筆，前三筆：" + JSON.stringify(bad.slice(0, 3)));
+  assert.equal(bad.length, 0,
+    "旗標不一致 " + bad.length + " 筆，前三筆：" + JSON.stringify(bad.slice(0, 3)));
+  console.log("旗標：821/821 一致");
 });
 
-test("合成資料：不足 180 根要回傳「資料不足」", () => {
-  const s = FIX.synthetic.find((x) => x.name === "short179");
-  const r = E.evaluateRegime(s.bars);
-  assert.equal(r.ok, false);
-  assert.equal(r.reason, "資料不足");
-});
-
-test("合成資料：flag_true_counts 與 fixture 宣告相符（僅比 spike/uptrend/stall_reverse/range_high 的穩定性）", () => {
-  // 逐筆比對四個旗標。volbase/ret48/pos30 已驗證可用，width72 待解，
-  // 所以這裡只檢查「我們的旗標在哪些筆為真」與 fixture 宣告的總數是否同量級，
-  // 差異會印出來，不算失敗（width72 未解會影響規則 3）。
-  const ours = { spike: 0, stall_reverse: 0, range_high: 0, uptrend: 0 };
-  const keys = ["spike", "stall_reverse", "range_high", "uptrend"];
+test("五個欄位誤差 < 1e-6（821/821）", () => {
+  const fields = ["width72", "ret48", "pos30", "volbase", "maxx48"];
+  const bad = [];
   for (const exp of FIX.expected) {
     const r = E.evaluateRegime(prefixFor(exp));
-    if (!r.ok) continue;
-    r.flags.forEach((f, i) => { if (f.on) ours[keys[i]]++; });
+    for (const f of fields) {
+      const got = r[f], want = exp[f];
+      if (got === null || want === null || Math.abs(got - want) > TOL) {
+        bad.push({ ms: exp.last_open_ms, f, got, want });
+      }
+    }
   }
-  const diff = keys.map((k) => k + " 我們 " + ours[k] + " / fixture " + FIX.flag_true_counts[k]);
-  console.log("旗標計數：" + diff.join("，"));
-  assert.ok(true);
+  assert.equal(bad.length, 0,
+    "欄位不一致 " + bad.length + " 筆，前五筆：" + JSON.stringify(bad.slice(0, 5)));
+  console.log("欄位：821/821 一致（" + fields.join("、") + "）");
+});
+
+test("bars_since_hi 逐筆相等（821/821）", () => {
+  const bad = [];
+  for (const exp of FIX.expected) {
+    const r = E.evaluateRegime(prefixFor(exp));
+    if (r.barsSinceHi !== exp.bars_since_hi) {
+      bad.push({ ms: exp.last_open_ms, got: r.barsSinceHi, want: exp.bars_since_hi });
+    }
+  }
+  assert.equal(bad.length, 0,
+    "bars_since_hi 不一致 " + bad.length + " 筆，前三筆：" + JSON.stringify(bad.slice(0, 3)));
+});
+
+/** synthetic 的 bars 是已解析物件（t 秒、net），要轉成引擎的緊湊陣列 */
+function syntheticToBars(s) {
+  return s.bars.map((b) => {
+    const v = b.v;
+    const tb = v > 0 ? (b.net + 1) / 2 * v : 0;
+    return [b.t * 1000, b.o, b.h, b.l, b.c, v, tb];
+  });
+}
+
+test("五個合成案例的四旗標都相等（5/5）", () => {
+  const bad = [];
+  for (const s of FIX.synthetic) {
+    const bars = syntheticToBars(s);
+    const r = E.evaluateRegime(bars);
+    if (s.name === "short179") {
+      if (r.ok !== false) bad.push({ name: s.name, why: "應回傳資料不足，實際 ok=" + r.ok });
+      continue;
+    }
+    if (!r.ok) { bad.push({ name: s.name, why: r.reason }); continue; }
+    FLAG_KEYS.forEach((k, j) => {
+      if (r.flags[j].on !== s.flags[k]) {
+        bad.push({ name: s.name, flag: k, got: r.flags[j].on, want: s.flags[k] });
+      }
+    });
+  }
+  assert.equal(bad.length, 0, "合成案例不一致：" + JSON.stringify(bad));
+  console.log("合成：5/5 一致（" + FIX.synthetic.map((s) => s.name).join("、") + "）");
 });
