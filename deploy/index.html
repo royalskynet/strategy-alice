@@ -763,9 +763,9 @@ function evaluateRegime(bars4h, th) {
     volbase = base.length % 2 ? base[Math.floor(mid)] : (base[mid - 1] + base[mid]) / 2;
   }
 
-  // 48h 報酬＝收盤 ÷ 12 根前收盤 − 1（比例，不是百分比）
+  // 48h 報酬＝收盤 ÷ 11 根前開盤 − 1（比例，不是百分比）
   // ponytail: 前綴比 13 根短時回 null；btc_watch 在 n<MIN_BARS(180) 時整筆不評分，兩者行為一致。
-  var ret48 = n >= 13 && closes[n - 13] ? c / closes[n - 13] - 1 : null;
+  var ret48 = n >= 12 && bars4h[n - 12] ? c / bars4h[n - 12][1] - 1 : null;
   // 48h 最大漲幅＝12 根內最高 ÷ 最低 − 1
   var win48 = bars4h.slice(-12);
   var maxx48 = Math.max.apply(null, win48.map(function (b) { return b[2]; })) /

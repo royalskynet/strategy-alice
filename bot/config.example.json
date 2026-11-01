@@ -1,0 +1,21 @@
+{
+  "fast": 20,
+  "slow": 60,
+  "sl": 2,
+  "tp": 4,
+  "stake": 1000,
+  "cap": 300,
+  "trailStart": 3,
+  "trailDist": 1,
+  "maxHold": 0,
+  "equity": 1000,
+  "fee": 0.1,
+  "slip": 0.05,
+  "cool": 0,
+  "ddStop": 0,
+  "maType": "sma",
+  "tf": "1h",
+  "revExit": 1,
+  "trail": 0,
+  "regimeFilter": "off"
+}
